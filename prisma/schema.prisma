@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model UpscaleScore {
+  id                    String   @id @default(uuid())
+  domain                String   @unique
+  estimatedMonthlySales BigInt?
+  estimatedAnnualGmv    BigInt?
+  gmvScore              Int      @default(1)
+  industry              String?
+  industryScore         Int      @default(1)
+  knownBrand            Boolean  @default(false)
+  recognizedExec        Boolean  @default(false)
+  recognitionScore      Int      @default(0)
+  totalScore            Int      @default(1)
+  tier                  String   @default("Tier 5")
+  platform              String?
+  gmvOverride           BigInt?
+  industryOverride      String?
+  locked                Boolean  @default(false)
+  flags                 String[] @default([])
+  scoredAt              DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([tier])
+  @@index([totalScore])
+  @@map("upscale_scores")
+}
+
+model BulkJob {
+  id        String   @id @default(uuid())
+  status    String   @default("processing")
+  total     Int      @default(0)
+  succeeded Int      @default(0)
+  failed    Int      @default(0)
+  failures  Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bulk_jobs")
+}
+
+model ScoreAuditLog {
+  id          String   @id @default(uuid())
+  domain      String
+  action      String
+  changes     Json
+  performedBy String?
+  createdAt   DateTime @default(now())
+
+  @@map("score_audit_log")
+}
