@@ -47,16 +47,22 @@ claude-ads/
     format-adapter.md
 ```
 
-## Integration with ad-intel Pipeline
+## ICP Qualification Protocol
 
-The `ad-intel` pipeline discovers ads (iSpot, YouTube, Meta). These skills
-analyze and score those findings:
+See `icp-qual/PROTOCOL.md` for the full 10-step workflow that integrates the
+ad-intel discovery pipeline with these analysis skills.
 
-1. Run `python main.py --domain brand.com --save-json` to get ad discovery data
-2. Use `/ads competitor` to analyze discovered ad URLs and creative strategies
-3. Use `/ads dna brand.com` to extract brand positioning from their website
-4. Use `/ads creative` to assess the quality of discovered ads
-5. Use `/ads create` to generate campaign concepts informed by the analysis
+**When asked to "run ICP" or "check" a domain, follow the protocol:**
+
+1. Store Leads enrichment + ad discovery pipeline
+2. Brand DNA extraction (`ads-dna`)
+3. Competitor ad intelligence (`ads-competitor`)
+4. Creative quality assessment (`ads-creative`)
+5. Platform-specific deep dives (`ads-meta`, `ads-youtube`, `ads-tiktok`)
+6. Multi-platform audit & scoring (`ads-audit`)
+7. E-commerce strategy plan (`ads-plan ecommerce`)
+8. Campaign brief generation (`ads-create`)
+9. Summary & Slack delivery
 
 ## Source
 
