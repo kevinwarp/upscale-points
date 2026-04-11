@@ -69,16 +69,18 @@ async def enrich_domain(domain: str) -> CompanyEnrichment | None:
                     linkedin_url = contact.get("value")
                     break
 
+            # Store Leads estimated_sales is monthly revenue in cents
+            raw_sales = data.get("estimated_sales")
+            monthly_revenue = raw_sales / 100 if raw_sales else None
+            annual_revenue = monthly_revenue * 12 if monthly_revenue else None
+
             return CompanyEnrichment(
                 domain=domain,
                 company_name=company_name,
                 website=f"https://{data.get('cluster_best_ranked', domain)}",
                 industry=industry,
-                estimated_revenue=(
-                    str(data.get("estimated_sales"))
-                    if data.get("estimated_sales")
-                    else None
-                ),
+                estimated_monthly_revenue=monthly_revenue,
+                estimated_annual_revenue=annual_revenue,
                 employee_count=data.get("employee_count"),
                 ecommerce_platform=data.get("platform"),
                 description=data.get("description"),

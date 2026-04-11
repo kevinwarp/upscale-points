@@ -33,7 +33,8 @@ class CompanyEnrichment(BaseModel):
     company_name: Optional[str] = None
     website: Optional[str] = None
     industry: Optional[str] = None
-    estimated_revenue: Optional[str] = None
+    estimated_monthly_revenue: Optional[float] = None
+    estimated_annual_revenue: Optional[float] = None
     employee_count: Optional[int] = None
     ecommerce_platform: Optional[str] = None
     description: Optional[str] = None
