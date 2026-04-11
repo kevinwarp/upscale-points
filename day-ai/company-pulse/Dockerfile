@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Stage 1: Dependencies
+# Stage 1: Dependencies (all deps needed for build)
 FROM node:20-alpine AS deps
 WORKDIR /app
 
@@ -11,26 +11,19 @@ RUN apk add --no-cache libc6-compat
 COPY package*.json ./
 COPY day-ai-sdk-0.1.0.tgz ./
 
-# Update package.json to point to SDK tarball
-RUN sed -i 's|"day-ai-sdk": "file:../day-sdk"|"day-ai-sdk": "file:./day-ai-sdk-0.1.0.tgz"|' package.json
-
-# Install all dependencies including the SDK
-RUN npm install --only=production
+# Install ALL dependencies (devDependencies needed for next build)
+RUN npm ci
 
 # Stage 2: Build
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy dependencies from deps stage (includes SDK)
+# Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package*.json ./
 
 # Copy all source files
 COPY . .
-
-# Restore the modified package.json from deps (with SDK tarball reference)
-RUN cp package.json package.json.original
-COPY --from=deps /app/package*.json ./
 
 # Set build-time environment variables
 ENV NEXT_TELEMETRY_DISABLED=1

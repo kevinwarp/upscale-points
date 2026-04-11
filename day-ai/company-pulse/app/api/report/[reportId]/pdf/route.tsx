@@ -27,7 +27,7 @@ export async function GET(
   try {
     const pdfBuffer = await renderToBuffer(<CompanyStatusPDF report={report} />)
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${report.organization.name.replace(/\s+/g, '_')}_status_report.pdf"`,

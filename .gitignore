@@ -6,10 +6,16 @@
 # Shell & config
 .zsh_history
 .zsh_sessions/
+.zshrc
+.zshrc.backup
+.zprofile
 .zcompdump
 .viminfo
 .bash_history
 .bash_sessions/
+.bash_profile
+.bashrc
+.profile
 
 # Credentials & secrets
 .pgpass

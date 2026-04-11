@@ -2,7 +2,11 @@ import fs from 'fs'
 import path from 'path'
 import type { CompanyReport } from './types'
 
-const REPORTS_DIR = path.join(process.cwd(), 'data', 'reports')
+// Vercel serverless has a read-only filesystem; /tmp is the only writable path.
+// Locally (or on GCP Cloud Run) we use data/reports under the project root.
+const REPORTS_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'reports')
+  : path.join(process.cwd(), 'data', 'reports')
 
 // Ensure reports directory exists
 function ensureReportsDir() {
