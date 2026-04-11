@@ -1,0 +1,73 @@
+steps:
+  # Step 1: Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/company-pulse:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/company-pulse:latest'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+    dir: '/workspace'
+    timeout: 1200s
+
+  # Step 2: Push the image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/company-pulse:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/company-pulse:latest'
+
+  # Step 3: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'company-pulse'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/company-pulse:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '300'
+      - '--concurrency'
+      - '50'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--port'
+      - '3000'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,DAY_AI_BASE_URL=https://day.ai,BEEHIIV_PUBLICATION_ID=pub_a7e962da-3337-4ba9-baca-68806e618eca'
+      - '--set-secrets'
+      - 'CLIENT_ID=CLIENT_ID:latest,CLIENT_SECRET=CLIENT_SECRET:latest,REFRESH_TOKEN=REFRESH_TOKEN:latest,HUBSPOT_ACCESS_TOKEN=HUBSPOT_ACCESS_TOKEN:latest,BEEHIIV_API_KEY=BEEHIIV_API_KEY:latest,INSTANTLY_API_KEY=INSTANTLY_API_KEY:latest,NEXTAUTH_SECRET=NEXTAUTH_SECRET:latest,NEXTAUTH_URL=NEXTAUTH_URL:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,API_KEY=API_KEY:latest'
+
+# Build timeout
+timeout: 1800s
+
+# Images to be pushed to Container Registry
+images:
+  - 'gcr.io/$PROJECT_ID/company-pulse:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/company-pulse:latest'
+
+# Options
+options:
+  machineType: 'N1_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
