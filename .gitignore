@@ -1,0 +1,68 @@
+# macOS system files
+.DS_Store
+.Trash/
+.CFUserTextEncoding
+
+# Shell & config
+.zsh_history
+.zsh_sessions/
+.zcompdump
+.viminfo
+.bash_history
+.bash_sessions/
+
+# Credentials & secrets
+.pgpass
+.ssh/
+.boto
+.gitconfig
+.npmrc
+.pypirc
+
+# App caches & data
+.cache/
+.config/
+.local/
+.npm/
+.nvm/
+.rustup/
+.docker/
+.colima/
+.cocoapods/
+.terraform.d/
+.swiftpm/
+
+# App-specific data
+.warp/
+.slack/
+.claude/
+.claude.json
+.claude.json.backup
+.codex/
+.idlerc/
+.gsutil/
+
+# User directories
+Desktop/
+Downloads/
+Documents/
+Library/
+Movies/
+Music/
+Pictures/
+Public/
+Applications/
+
+# Media & personal files
+*.jpg
+*.jpeg
+*.png
+*.pdf
+*.mov
+*.mp4
+
+# node_modules in any subproject (belt and suspenders)
+**/node_modules/
+
+# Next.js build artifacts in any subproject
+**/.next/
