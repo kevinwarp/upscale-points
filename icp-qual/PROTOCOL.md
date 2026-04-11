@@ -117,19 +117,77 @@ Using the `ads-create` skill:
 
 ## Step 10: Summary & Delivery
 
-Compile all findings into a single report:
+Send to **#sales** (`C0A74SWFK43`) as an executive summary + threaded detail sections.
 
-1. **Company Overview** — from Store Leads enrichment
-2. **Ad Discovery Results** — channel mix table (iSpot/YouTube/Meta)
-3. **Brand DNA Summary** — voice, colors, target audience
-4. **Competitive Intelligence** — ad strategy analysis, platform/messaging gaps
-5. **Creative Assessment** — quality scores, fatigue signals, format gaps
-6. **Audit Score** — aggregate health score with grade
-7. **Strategy Recommendations** — e-commerce plan highlights
-8. **Campaign Concepts** — brief summaries from campaign-brief.md
-9. **All Ad URLs** — full list of discovered ad links
+### 10a. Executive Summary (main message)
 
-Send to #sales via Slack with canvas attachment containing the full report.
+Post a single scannable message to #sales. Keep it under 2000 chars. Format:
+
+```
+{logo_url}
+**{company_name}** — {industry}
+{description}
+
+Revenue: ${estimated_monthly_revenue}/mo (${estimated_annual_revenue}/yr DTC)
+Traffic: {estimated_monthly_visits} visits/mo
+Platform: {ecommerce_platform} ({ecommerce_plan}) | {product_count} products | Avg ${avg_product_price}
+Location: {city}, {state}, {country}
+Employees: {employee_count}
+
+Ad Activity: {total_platforms} platforms | {total_ads_found} ads found
+  iSpot: {count} | YouTube: {count} | Meta: {count}
+
+Ads Health Score: {score}/100 ({grade})
+
+Top 3 Recommendations:
+1. {critical finding}
+2. {high priority finding}
+3. {quick win}
+
+See thread for full analysis
+```
+
+Save the returned message timestamp as `thread_ts` for all subsequent replies.
+
+### 10b. Threaded Detail Sections
+
+Reply to the executive summary using `thread_ts`. Send each section as a separate threaded message in this order:
+
+**Thread 1 — Company Profile**
+Full enrichment data: revenue breakdown, tech spend ratio, price range, monthly app spend, store age, reviews ({review_count} on {review_source}, {review_rating} stars), LinkedIn URL, phone, emails. Include social profiles table (platform, URL, followers, posts, likes).
+
+**Thread 2 — Tech Stack & Features**
+Full technologies list grouped by category (tracking/attribution, marketing automation, analytics, ecommerce apps, other). Features list. Tech sophistication assessment.
+
+**Thread 3 — Ad Discovery**
+Channel mix table showing platform, ad count, and status. List every discovered ad URL grouped by platform with titles and dates.
+
+**Thread 4 — Brand DNA**
+Voice axes, color palette, typography, imagery style, target audience, brand values. From brand-profile.json (Step 3).
+
+**Thread 5 — Competitive Intelligence**
+Ad strategy analysis, messaging pillars, platform gaps, audience opportunities, creative refresh velocity. From ads-competitor (Step 4).
+
+**Thread 6 — Creative Assessment**
+Quality scores per platform, format diversity, fatigue signals, production priority recommendations. From ads-creative (Step 5).
+
+**Thread 7 — Platform Deep Dives**
+One section per active platform (Meta/YouTube/TikTok). Key check results, scores, and specific findings. From ads-meta/youtube/tiktok (Step 6).
+
+**Thread 8 — Audit Scorecard**
+Full scoring breakdown by category. Per-platform health scores. Prioritized action plan (Critical > High > Medium > Low). Quick wins list. From ads-audit (Step 7).
+
+**Thread 9 — Strategy & Campaign Brief**
+E-commerce strategy highlights: platform mix, budget framework, campaign architecture, implementation roadmap phases. Campaign concepts with messaging angles and platform-specific copy. From ads-plan + ads-create (Steps 8-9).
+
+### Delivery Rules
+
+- Each thread message must be under 4000 chars (Slack limit is 5000, leave buffer)
+- Use plain text formatting only — no markdown tables (Slack doesn't render them)
+- Use spacing and indentation for visual structure
+- If a section exceeds 4000 chars, split into multiple threaded replies (e.g., "Platform Deep Dives 1/2", "2/2")
+- Include URLs as plain links, not markdown links with query params (those can break)
+- Do NOT create a canvas — the threaded format replaces it
 
 ---
 
@@ -145,4 +203,4 @@ Send to #sales via Slack with canvas attachment containing the full report.
 | 7 | ads-audit | Health score (0-100) + action plan |
 | 8 | ads-plan ecommerce | E-commerce strategy roadmap |
 | 9 | ads-create | campaign-brief.md with copy deck |
-| 10 | — | Summary + Slack delivery |
+| 10 | — | Executive summary + 9 threaded detail sections to #sales |

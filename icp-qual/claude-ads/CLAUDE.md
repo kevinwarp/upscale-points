@@ -62,7 +62,7 @@ ad-intel discovery pipeline with these analysis skills.
 6. Multi-platform audit & scoring (`ads-audit`)
 7. E-commerce strategy plan (`ads-plan ecommerce`)
 8. Campaign brief generation (`ads-create`)
-9. Summary & Slack delivery
+9. Executive summary to #sales + 9 threaded detail sections
 
 ## Source
 
