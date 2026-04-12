@@ -14,7 +14,7 @@ import calendar as cal_mod
 import html as html_mod
 from datetime import date, datetime
 
-from models.ad_models import CTV_COMPETITOR_TAGS, DomainAdReport
+from models.ad_models import CTV_COMPETITOR_TAGS, DomainAdReport, NewsItem, PodcastAppearance, PlatformCaseStudy
 from data.tech_categories import group_technologies, CATEGORY_COLORS, categorize_tech
 from data.competitive_intel import (
     CREATIVE_REALITY_MATRIX,
@@ -130,6 +130,12 @@ def generate_internal_report(
     committee_section = _buying_committee(report)
     talk_track_section = _call_talk_track(report, fit)
     priority_section = _account_priority_signal(report, fit)
+
+    # Phase 2: Deep Research Sections
+    hiring_section = _build_hiring_section(report)
+    news_section = _build_news_section(report)
+    podcasts_section = _build_podcasts_section(report)
+    case_studies_section = _build_case_studies_section(report)
 
     generated = datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
 
@@ -862,6 +868,26 @@ section h2 {{
   <div class="section-wrap" data-section="Call Talk Track" data-filename="call-talk-track">
     <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
     {talk_track_section}
+  </div>
+
+  <div class="section-wrap" data-section="Hiring Signals" data-filename="hiring-signals">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {hiring_section}
+  </div>
+
+  <div class="section-wrap" data-section="News &amp; Media" data-filename="news-media">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {news_section}
+  </div>
+
+  <div class="section-wrap" data-section="Podcasts &amp; Thought Leadership" data-filename="podcasts-thought-leadership">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {podcasts_section}
+  </div>
+
+  <div class="section-wrap" data-section="Platform Case Studies" data-filename="case-studies">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {case_studies_section}
   </div>
 
   <div class="zip-bar">
@@ -3701,5 +3727,215 @@ def _account_priority_signal(report: DomainAdReport, fit: UpscaleFitResult) -> s
       <h3 style="font-size:.9rem;color:var(--danger);margin-bottom:10px">Risk Signals ({con_count})</h3>
       {con_items or '<p style="color:var(--muted);font-size:.84rem">None identified</p>'}
     </div>
+  </div>
+</section>"""
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Deep Research Section Builders
+# ---------------------------------------------------------------------------
+
+def _build_hiring_section(report: DomainAdReport) -> str:
+    """Hiring & Growth Signals section."""
+    hi = report.hiring_intel
+    if not hi.found and not hi.open_jobs_count:
+        return """<section>
+  <h2>Hiring &amp; Growth Signals</h2>
+  <p style="color:var(--muted);padding:20px 0">No hiring data available.</p>
+</section>"""
+
+    # Velocity badge
+    vel = hi.hiring_velocity or "unknown"
+    vel_colors = {"accelerating": "var(--success)", "stable": "var(--teal)", "slowing": "var(--warning)"}
+    vel_color = vel_colors.get(vel, "var(--muted)")
+
+    # Growth metrics
+    growth_html = ""
+    if hi.headcount_growth_12m is not None:
+        g12 = hi.headcount_growth_12m
+        g_color = "var(--success)" if g12 > 10 else "var(--teal)" if g12 > 0 else "var(--danger)"
+        growth_html += (
+            f'<div style="padding:16px;background:var(--bg-grey);border-radius:10px;text-align:center">'
+            f'<div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">12-Month Growth</div>'
+            f'<div style="font-size:1.4rem;font-weight:800;color:{g_color}">{g12:+.1f}%</div></div>'
+        )
+    if hi.headcount_growth_24m is not None:
+        g24 = hi.headcount_growth_24m
+        g_color = "var(--success)" if g24 > 15 else "var(--teal)" if g24 > 0 else "var(--danger)"
+        growth_html += (
+            f'<div style="padding:16px;background:var(--bg-grey);border-radius:10px;text-align:center">'
+            f'<div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">24-Month Growth</div>'
+            f'<div style="font-size:1.4rem;font-weight:800;color:{g_color}">{g24:+.1f}%</div></div>'
+        )
+
+    # Marketing jobs
+    mkt_jobs_html = ""
+    if hi.marketing_jobs:
+        rows = "".join(
+            f'<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.84rem;display:flex;justify-content:space-between">'
+            f'<span style="font-weight:600">{_esc(j.title)}</span>'
+            f'<span style="color:var(--muted)">{_esc(j.location or "Remote")}</span></div>'
+            for j in hi.marketing_jobs[:8]
+        )
+        mkt_jobs_html = (
+            f'<div style="margin-top:16px">'
+            f'<h3 style="font-size:.9rem;color:var(--pink);margin-bottom:10px">Marketing &amp; Growth Roles ({len(hi.marketing_jobs)})</h3>'
+            f'{rows}</div>'
+        )
+
+    return f"""<section>
+  <h2>Hiring &amp; Growth Signals</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+    <div style="padding:16px;background:var(--bg-grey);border-radius:10px;text-align:center">
+      <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Open Jobs</div>
+      <div style="font-size:1.6rem;font-weight:800;color:var(--navy)">{hi.open_jobs_count}</div>
+    </div>
+    <div style="padding:16px;background:var(--bg-grey);border-radius:10px;text-align:center">
+      <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Hiring Velocity</div>
+      <div style="font-size:1.1rem;font-weight:700;color:{vel_color}">{vel.title()}</div>
+    </div>
+    {growth_html}
+  </div>
+  {mkt_jobs_html}
+</section>"""
+
+
+def _build_news_section(report: DomainAdReport) -> str:
+    """Recent News & Media section."""
+    news = report.recent_news
+    if not news:
+        return """<section>
+  <h2>Recent News &amp; Media</h2>
+  <p style="color:var(--muted);padding:20px 0">No recent news articles found.</p>
+</section>"""
+
+    cat_icons = {
+        "funding": "&#x1f4b0;",
+        "product_launch": "&#x1f680;",
+        "partnership": "&#x1f91d;",
+        "m_and_a": "&#x1f3e2;",
+        "press": "&#x1f4f0;",
+        "other": "&#x1f4cc;",
+    }
+
+    cat_labels = {
+        "funding": "Funding",
+        "product_launch": "Product Launch",
+        "partnership": "Partnership",
+        "m_and_a": "M&A",
+        "press": "Press",
+        "other": "Other",
+    }
+
+    # Category summary pills
+    cats: dict[str, int] = {}
+    for n in news:
+        cats[n.category] = cats.get(n.category, 0) + 1
+    cat_pills = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;'
+        f'background:var(--bg-grey);border:1px solid var(--border);border-radius:8px;'
+        f'font-size:.8rem;font-weight:600">{cat_icons.get(cat, "&#x1f4cc;")} '
+        f'{cat_labels.get(cat, cat)} ({count})</span>'
+        for cat, count in sorted(cats.items(), key=lambda x: x[1], reverse=True)
+    )
+
+    # News cards
+    cards = "".join(
+        f'<div style="padding:12px 0;border-bottom:1px solid var(--border)">'
+        f'<div style="display:flex;align-items:flex-start;gap:10px">'
+        f'<span style="font-size:1.1rem">{cat_icons.get(n.category, "&#x1f4cc;")}</span>'
+        f'<div style="flex:1;min-width:0">'
+        f'<div style="font-size:.88rem;font-weight:600;color:var(--navy)">'
+        f'{"<a href=" + chr(34) + _esc(n.url) + chr(34) + " target=" + chr(34) + "_blank" + chr(34) + " style=" + chr(34) + "color:var(--navy);text-decoration:none" + chr(34) + ">" + _esc(n.headline) + "</a>" if n.url else _esc(n.headline)}'
+        f'</div>'
+        f'<div style="font-size:.75rem;color:var(--muted);margin-top:2px">'
+        f'{_esc(n.source or "")}{"  ·  " if n.source and n.date else ""}{_esc(n.date or "")}'
+        f'</div></div></div></div>'
+        for n in news[:12]
+    )
+
+    return f"""<section>
+  <h2>Recent News &amp; Media ({len(news)})</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">{cat_pills}</div>
+  {cards}
+</section>"""
+
+
+def _build_podcasts_section(report: DomainAdReport) -> str:
+    """Podcasts & Thought Leadership section."""
+    pods = report.podcasts
+    if not pods:
+        return """<section>
+  <h2>Podcasts &amp; Thought Leadership</h2>
+  <p style="color:var(--muted);padding:20px 0">No podcast or thought leadership appearances found.</p>
+</section>"""
+
+    cards = "".join(
+        f'<div style="padding:14px;background:var(--bg-grey);border:1px solid var(--border);border-radius:10px">'
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+        f'<span style="font-size:1.2rem">&#x1f3a7;</span>'
+        f'<div style="flex:1">'
+        f'<div style="font-size:.88rem;font-weight:700;color:var(--navy)">'
+        f'{"<a href=" + chr(34) + _esc(p.url) + chr(34) + " target=" + chr(34) + "_blank" + chr(34) + " style=" + chr(34) + "color:var(--navy);text-decoration:none" + chr(34) + ">" + _esc(p.episode_title) + "</a>" if p.url else _esc(p.episode_title)}'
+        f'</div>'
+        f'<div style="font-size:.78rem;color:var(--muted)">{_esc(p.show_name)}</div>'
+        f'</div></div>'
+        f'<div style="font-size:.78rem;color:var(--muted)">'
+        f'{_esc(p.person_name)}{"  ·  " + _esc(p.person_title) if p.person_title else ""}'
+        f'{"  ·  " + _esc(p.date) if p.date else ""}'
+        f'</div></div>'
+        for p in pods[:10]
+    )
+
+    return f"""<section>
+  <h2>Podcasts &amp; Thought Leadership ({len(pods)})</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">
+    {cards}
+  </div>
+</section>"""
+
+
+def _build_case_studies_section(report: DomainAdReport) -> str:
+    """Platform Case Studies section."""
+    studies = report.case_studies
+    if not studies:
+        return """<section>
+  <h2>Platform Case Studies</h2>
+  <p style="color:var(--muted);padding:20px 0">No platform case studies found for this brand.</p>
+</section>"""
+
+    platform_colors = {
+        "Meta": "#1877F2",
+        "Google": "#4285F4",
+        "TikTok": "#000000",
+        "Shopify": "#96BF48",
+        "YouTube": "#FF0000",
+        "Klaviyo": "#003B5C",
+        "Triple Whale": "#0A6D86",
+    }
+
+    cards = "".join(
+        f'<div style="padding:16px;border:1px solid var(--border);border-radius:12px;'
+        f'border-left:4px solid {platform_colors.get(cs.platform, "var(--teal)")}">'
+        f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+        f'<span style="font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:4px;'
+        f'background:{platform_colors.get(cs.platform, "var(--teal)")};color:white">{_esc(cs.platform)}</span>'
+        f'</div>'
+        f'<div style="font-size:.9rem;font-weight:700;color:var(--navy);margin-bottom:6px">'
+        f'{"<a href=" + chr(34) + _esc(cs.url) + chr(34) + " target=" + chr(34) + "_blank" + chr(34) + " style=" + chr(34) + "color:var(--navy);text-decoration:none" + chr(34) + ">" + _esc(cs.title) + " &rarr;</a>" if cs.url else _esc(cs.title)}'
+        f'</div>'
+        + (f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">'
+           + "".join(f'<span style="padding:2px 8px;background:#ECFDF5;color:var(--success);'
+                     f'border-radius:4px;font-size:.75rem;font-weight:600">{_esc(m)}</span>' for m in cs.key_metrics[:5])
+           + '</div>' if cs.key_metrics else '')
+        + (f'<p style="font-size:.82rem;color:var(--muted);line-height:1.5">{_esc(cs.summary)}</p>' if cs.summary else '')
+        + '</div>'
+        for cs in studies[:8]
+    )
+
+    return f"""<section>
+  <h2>Platform Case Studies ({len(studies)})</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px">
+    {cards}
   </div>
 </section>"""

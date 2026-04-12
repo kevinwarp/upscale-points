@@ -399,6 +399,55 @@ class CreativePipelineResult(BaseModel):
     error_code: Optional[str] = None
 
 
+class NewsItem(BaseModel):
+    """A news article or press mention for the brand."""
+    headline: str = ""
+    source: Optional[str] = None
+    url: Optional[str] = None
+    date: Optional[str] = None
+    category: str = ""  # press, product_launch, partnership, m_and_a, funding, other
+
+
+class PodcastAppearance(BaseModel):
+    """A podcast or thought leadership appearance by a company leader."""
+    person_name: str = ""
+    person_title: Optional[str] = None
+    show_name: str = ""
+    episode_title: str = ""
+    url: Optional[str] = None
+    date: Optional[str] = None
+
+
+class PlatformCaseStudy(BaseModel):
+    """A case study from an ad/tech platform mentioning the brand."""
+    platform: str = ""  # "Meta", "Google", "TikTok", "Shopify", etc.
+    title: str = ""
+    url: Optional[str] = None
+    key_metrics: list[str] = Field(default_factory=list)  # ["2.5x ROAS", "40% lower CPA"]
+    summary: Optional[str] = None
+
+
+class JobPosting(BaseModel):
+    """An open job posting for the brand."""
+    title: str = ""
+    department: Optional[str] = None
+    location: Optional[str] = None
+    url: Optional[str] = None
+    is_marketing: bool = False  # flagged if title matches marketing/growth/media keywords
+
+
+class HiringIntel(BaseModel):
+    """Hiring and growth signals for the brand."""
+    found: bool = False
+    open_jobs_count: int = 0
+    marketing_jobs: list[JobPosting] = Field(default_factory=list)
+    all_jobs: list[JobPosting] = Field(default_factory=list)
+    hiring_velocity: Optional[str] = None  # "accelerating", "stable", "slowing"
+    headcount_growth_12m: Optional[float] = None  # percentage
+    headcount_growth_24m: Optional[float] = None
+    error: Optional[str] = None
+
+
 class DomainAdReport(BaseModel):
     domain: str
     company_name: Optional[str] = None
@@ -422,6 +471,12 @@ class DomainAdReport(BaseModel):
     enriched_competitors: list[EnrichedCompetitor] = Field(default_factory=list)
     wayback_intel: WaybackIntelModel = Field(default_factory=WaybackIntelModel)
     creative_pipeline: CreativePipelineResult = Field(default_factory=CreativePipelineResult)
+    # Phase 2: New data collection fields
+    hiring_intel: HiringIntel = Field(default_factory=HiringIntel)
+    recent_news: list[NewsItem] = Field(default_factory=list)
+    podcasts: list[PodcastAppearance] = Field(default_factory=list)
+    case_studies: list[PlatformCaseStudy] = Field(default_factory=list)
+
     running_any_ads: bool = False
     generated_at: str = ""
     pipeline_duration_seconds: Optional[float] = None

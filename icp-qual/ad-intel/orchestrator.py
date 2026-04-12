@@ -403,6 +403,95 @@ async def run_pipeline(
         "total": len(target_contacts),
     })
 
+    # ── Phase 2: Deep Research (runs in parallel) ───────────────
+    from enrichment.hiring_signals import fetch_hiring_intel
+    from enrichment.news_search import fetch_news_intel
+    from enrichment.thought_leadership import fetch_thought_leadership
+    from enrichment.case_study_search import fetch_case_studies
+
+    company_name = report.company_name or domain
+
+    # Prepare people list for thought leadership search
+    key_people: list[dict] = []
+    for tc in target_contacts[:5]:
+        name = f"{tc.first_name or ''} {tc.last_name or ''}".strip()
+        if name:
+            key_people.append({"name": name, "title": tc.title or ""})
+
+    # Launch Phase 2 tasks in parallel
+    status.step_start("news_search", f"Searching news & media for {company_name}...", progress=73)
+    status.step_start("thought_leadership", f"Searching podcasts & thought leadership...", progress=73)
+    status.step_start("case_study_search", f"Searching platform case studies...", progress=73)
+
+    phase2_tasks = await asyncio.gather(
+        fetch_hiring_intel(domain, company_name=company_name, clay_data=report.clay.raw_data if report.clay and report.clay.enriched else None),
+        fetch_news_intel(domain, company_name=company_name, clay_news=report.clay.recent_news if report.clay else None),
+        fetch_thought_leadership(domain, company_name=company_name, key_people=key_people or None, clay_founders=report.brand_intel.founders or None),
+        fetch_case_studies(domain, company_name=company_name),
+        return_exceptions=True,
+    )
+
+    # Collect hiring intel
+    hiring_result = phase2_tasks[0]
+    if isinstance(hiring_result, Exception):
+        logger.warning(f"Hiring intel failed: {hiring_result}")
+    else:
+        report.hiring_intel = hiring_result
+        tracker.record("Hiring Intel (Clay)", "hiring_signals", data_summary=f"{hiring_result.open_jobs_count} jobs, {len(hiring_result.marketing_jobs)} marketing")
+        detail_parts = [f"{hiring_result.open_jobs_count} open jobs"]
+        if hiring_result.marketing_jobs:
+            detail_parts.append(f"{len(hiring_result.marketing_jobs)} marketing roles")
+        if hiring_result.hiring_velocity:
+            detail_parts.append(f"velocity: {hiring_result.hiring_velocity}")
+
+    # Collect news intel
+    news_result = phase2_tasks[1]
+    if isinstance(news_result, Exception):
+        logger.warning(f"News search failed: {news_result}")
+        status.step_complete("news_search", "News: error", progress=76)
+    else:
+        report.recent_news = news_result
+        cats = {}
+        for n in news_result:
+            cats[n.category] = cats.get(n.category, 0) + 1
+        cat_str = ", ".join(f"{v} {k}" for k, v in sorted(cats.items(), key=lambda x: x[1], reverse=True))
+        tracker.record("News Search", "news_search", data_summary=f"{len(news_result)} articles")
+        status.step_complete("news_search", f"News: {len(news_result)} articles ({cat_str})", progress=76, data={
+            "detail": f"{len(news_result)} articles found" + (f" · {cat_str}" if cat_str else ""),
+            "articles": len(news_result),
+            "categories": cats,
+        })
+
+    # Collect thought leadership
+    podcast_result = phase2_tasks[2]
+    if isinstance(podcast_result, Exception):
+        logger.warning(f"Thought leadership search failed: {podcast_result}")
+        status.step_complete("thought_leadership", "Podcasts: error", progress=78)
+    else:
+        report.podcasts = podcast_result
+        tracker.record("Thought Leadership", "thought_leadership", data_summary=f"{len(podcast_result)} appearances")
+        status.step_complete("thought_leadership", f"Podcasts: {len(podcast_result)} appearances found", progress=78, data={
+            "detail": f"{len(podcast_result)} podcast/thought leadership appearances" if podcast_result else "No podcast appearances found",
+            "podcasts": len(podcast_result),
+        })
+
+    # Collect case studies
+    case_result = phase2_tasks[3]
+    if isinstance(case_result, Exception):
+        logger.warning(f"Case study search failed: {case_result}")
+        status.step_complete("case_study_search", "Case studies: error", progress=80)
+    else:
+        report.case_studies = case_result
+        platforms = list(dict.fromkeys(cs.platform for cs in case_result))
+        tracker.record("Case Study Search", "case_study_search", data_summary=f"{len(case_result)} studies")
+        status.step_complete("case_study_search", f"Case studies: {len(case_result)} found ({', '.join(platforms)})", progress=80, data={
+            "detail": f"{len(case_result)} case studies from {', '.join(platforms)}" if case_result else "No platform case studies found",
+            "studies": len(case_result),
+            "platforms": platforms,
+        })
+
+    # ── End Phase 2 ───────────────────────────────────────────
+
     # Collect Creative Pipeline result (may still be running — await it)
     tracker.start("creative_pipeline")
     status.step_start("creative_pipeline_wait", "Waiting for AI creative generation...", progress=75)

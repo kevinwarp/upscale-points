@@ -203,15 +203,34 @@ async def pipeline_status(run_id: str):
                         step_map[step_name]["label"] = evt.get("label", step_name)
                         if evt.get("duration_ms"):
                             step_map[step_name]["duration_seconds"] = evt["duration_ms"] / 1000
+                        # Pass detail and data through to frontend
+                        if evt.get("data"):
+                            step_map[step_name]["data"] = evt["data"]
+                            if evt["data"].get("detail"):
+                                step_map[step_name]["detail"] = evt["data"]["detail"]
                     elif evt.get("event") == "step_error":
                         step_map[step_name]["status"] = "error"
-                        step_map[step_name]["detail"] = evt.get("label", "")
+                        step_map[step_name]["detail"] = evt.get("error") or evt.get("label", "")
 
             steps = list(step_map.values())
+
+    # Compute elapsed seconds
+    elapsed_seconds = None
+    if run.get("started_at"):
+        try:
+            started = datetime.fromisoformat(run["started_at"])
+            if run.get("completed_at"):
+                ended = datetime.fromisoformat(run["completed_at"])
+                elapsed_seconds = (ended - started).total_seconds()
+            else:
+                elapsed_seconds = (datetime.now(timezone.utc) - started).total_seconds()
+        except Exception:
+            pass
 
     return {
         **run,
         "steps": steps,
+        "elapsed_seconds": elapsed_seconds,
     }
 
 
