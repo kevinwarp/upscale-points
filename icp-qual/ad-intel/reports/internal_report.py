@@ -123,6 +123,14 @@ def generate_internal_report(
     # Gaps analysis
     gaps_section = _build_gaps_section(report, fit)
 
+    # Phase 1: AI Synthesis Sections
+    maturity_section = _paid_media_maturity(report, fit)
+    creative_signals_section = _creative_messaging_signals(report)
+    hypotheses_section = _ctv_youtube_hypotheses(report, fit)
+    committee_section = _buying_committee(report)
+    talk_track_section = _call_talk_track(report, fit)
+    priority_section = _account_priority_signal(report, fit)
+
     generated = datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
 
     return f"""<!DOCTYPE html>
@@ -824,6 +832,36 @@ section h2 {{
   <div class="section-wrap" data-section="Channel Gaps" data-filename="channel-gaps">
     <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
     {gaps_section}
+  </div>
+
+  <div class="section-wrap" data-section="Account Priority" data-filename="account-priority">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {priority_section}
+  </div>
+
+  <div class="section-wrap" data-section="Paid Media Maturity" data-filename="paid-media-maturity">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {maturity_section}
+  </div>
+
+  <div class="section-wrap" data-section="Creative Signals" data-filename="creative-signals">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {creative_signals_section}
+  </div>
+
+  <div class="section-wrap" data-section="CTV YouTube Hypotheses" data-filename="ctv-youtube-hypotheses">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {hypotheses_section}
+  </div>
+
+  <div class="section-wrap" data-section="Buying Committee" data-filename="buying-committee">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {committee_section}
+  </div>
+
+  <div class="section-wrap" data-section="Call Talk Track" data-filename="call-talk-track">
+    <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
+    {talk_track_section}
   </div>
 
   <div class="zip-bar">
@@ -2994,4 +3032,674 @@ def _build_brand_intel_section(report: DomainAdReport) -> str:
   {maturity_html}
   {comp_html}
   {tech_html}
+</section>"""
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: AI Synthesis Sections
+# ---------------------------------------------------------------------------
+
+def _paid_media_maturity(report: DomainAdReport, fit: UpscaleFitResult) -> str:
+    """Section 1: Paid Media Maturity Assessment — Low/Medium/High rating."""
+    mix = report.channel_mix
+    bi = report.brand_intel
+    e = report.enrichment
+
+    # Determine primary channels
+    channels_active: list[str] = []
+    if mix.has_meta:
+        channels_active.append("Meta")
+    if mix.has_youtube:
+        channels_active.append("YouTube")
+    if mix.has_linear:
+        channels_active.append("CTV / Linear TV")
+    if report.meta_ads.found and report.meta_ads.ads:
+        if "Meta" not in channels_active:
+            channels_active.append("Meta")
+    if report.ispot_ads.found and report.ispot_ads.ads:
+        if "CTV / Linear TV" not in channels_active:
+            channels_active.append("CTV / Linear TV")
+
+    # Overall maturity score
+    maturity_points = 0
+    maturity_signals: list[tuple[str, str]] = []  # (signal, color)
+
+    # Channel breadth
+    if mix.total_platforms >= 3:
+        maturity_points += 3
+        maturity_signals.append(("Multi-channel presence (3+ platforms)", "var(--success)"))
+    elif mix.total_platforms == 2:
+        maturity_points += 2
+        maturity_signals.append(("Dual-channel presence", "var(--teal)"))
+    elif mix.total_platforms == 1:
+        maturity_points += 1
+        maturity_signals.append(("Single-channel only", "var(--warning)"))
+    else:
+        maturity_signals.append(("No ad platforms detected", "var(--danger)"))
+
+    # Creative volume
+    total_ads = mix.total_ads_found
+    if total_ads >= 20:
+        maturity_points += 3
+        maturity_signals.append((f"{total_ads} ads found — high creative velocity", "var(--success)"))
+    elif total_ads >= 5:
+        maturity_points += 2
+        maturity_signals.append((f"{total_ads} ads found — moderate creative testing", "var(--teal)"))
+    elif total_ads >= 1:
+        maturity_points += 1
+        maturity_signals.append((f"{total_ads} ad(s) found — minimal creative testing", "var(--warning)"))
+    else:
+        maturity_signals.append(("No ads discovered", "var(--danger)"))
+
+    # Analytics maturity
+    maturity_level = (bi.analytics_maturity or "unknown").lower()
+    if maturity_level == "advanced":
+        maturity_points += 3
+        maturity_signals.append(("Advanced analytics/attribution stack", "var(--success)"))
+    elif maturity_level == "intermediate":
+        maturity_points += 2
+        maturity_signals.append(("Intermediate analytics stack", "var(--teal)"))
+    elif maturity_level == "basic":
+        maturity_points += 1
+        maturity_signals.append(("Basic analytics only", "var(--warning)"))
+    else:
+        maturity_signals.append(("Analytics maturity unknown", "var(--muted)"))
+
+    # Attribution tools
+    if bi.attribution_tools:
+        maturity_points += 2
+        maturity_signals.append((f"Attribution tools: {', '.join(bi.attribution_tools[:3])}", "var(--success)"))
+
+    # Incrementality evidence (MMM, lift tests)
+    incrementality = "None detected"
+    _incr_keywords = {"northbeam", "measured", "rockerbox", "triple whale", "triplewhale", "tatari"}
+    incr_tools = [t for t in (bi.analytics_tools + bi.attribution_tools) if t.lower() in _incr_keywords]
+    if incr_tools:
+        maturity_points += 1
+        incrementality = f"Possible — uses {', '.join(incr_tools)}"
+        maturity_signals.append((f"Incrementality measurement likely ({', '.join(incr_tools)})", "var(--success)"))
+
+    # Overall rating
+    if maturity_points >= 9:
+        rating, rating_color = "High", "var(--success)"
+    elif maturity_points >= 5:
+        rating, rating_color = "Medium", "var(--teal)"
+    else:
+        rating, rating_color = "Low", "var(--warning)"
+
+    # CTV maturity
+    ctv_maturity = "None"
+    ctv_color = "var(--muted)"
+    if report.competitor_detection.found:
+        ctv_maturity = "Active (competitor detected)"
+        ctv_color = "var(--danger)"
+    elif mix.has_linear:
+        if total_ads >= 5:
+            ctv_maturity = "Scaling"
+            ctv_color = "var(--success)"
+        else:
+            ctv_maturity = "Testing"
+            ctv_color = "var(--teal)"
+
+    # YouTube maturity
+    yt_maturity = "None"
+    yt_color = "var(--muted)"
+    if mix.has_youtube:
+        yt_ads = len(report.youtube_ads.ads) if report.youtube_ads.found else 0
+        if yt_ads >= 5:
+            yt_maturity = "Scaling"
+            yt_color = "var(--success)"
+        else:
+            yt_maturity = "Testing"
+            yt_color = "var(--teal)"
+
+    # In-house vs agency
+    agency_signal = "Unknown"
+    if e and e.employee_count:
+        if e.employee_count < 20:
+            agency_signal = "Likely agency-managed (small team)"
+        elif e.employee_count < 100:
+            agency_signal = "Likely hybrid (in-house + agency)"
+        else:
+            agency_signal = "Likely in-house team"
+
+    # Build signal rows
+    signal_html = "".join(
+        f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;'
+        f'border-bottom:1px solid var(--border)">'
+        f'<span style="width:8px;height:8px;border-radius:50%;background:{color};flex-shrink:0"></span>'
+        f'<span style="font-size:.84rem;color:var(--navy)">{_esc(sig)}</span></div>'
+        for sig, color in maturity_signals
+    )
+
+    channels_str = ", ".join(channels_active) if channels_active else "None detected"
+
+    return f"""<section>
+  <h2>Paid Media Maturity Assessment</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+    <div style="padding:20px;background:var(--bg-grey);border-radius:12px;text-align:center">
+      <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Overall Maturity</div>
+      <div style="font-size:1.6rem;font-weight:800;color:{rating_color}">{rating}</div>
+    </div>
+    <div style="padding:20px;background:var(--bg-grey);border-radius:12px;text-align:center">
+      <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">CTV Maturity</div>
+      <div style="font-size:1.1rem;font-weight:700;color:{ctv_color}">{ctv_maturity}</div>
+    </div>
+    <div style="padding:20px;background:var(--bg-grey);border-radius:12px;text-align:center">
+      <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">YouTube Maturity</div>
+      <div style="font-size:1.1rem;font-weight:700;color:{yt_color}">{yt_maturity}</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div>
+      <h3 style="font-size:.9rem;color:var(--muted);margin-bottom:10px">Maturity Signals</h3>
+      {signal_html}
+    </div>
+    <div>
+      <div class="detail-row"><span class="lbl">Primary Channels</span><span class="val">{_esc(channels_str)}</span></div>
+      <div class="detail-row"><span class="lbl">Management Model</span><span class="val">{_esc(agency_signal)}</span></div>
+      <div class="detail-row"><span class="lbl">Incrementality Evidence</span><span class="val">{_esc(incrementality)}</span></div>
+      <div class="detail-row"><span class="lbl">Creative Fatigue Risk</span><span class="val">{"Low" if total_ads >= 10 else "High — limited creative rotation" if total_ads <= 2 else "Medium"}</span></div>
+    </div>
+  </div>
+</section>"""
+
+
+def _creative_messaging_signals(report: DomainAdReport) -> str:
+    """Section 2: Creative & Messaging Signals — ad format analysis."""
+    meta_ads = report.meta_ads.ads if report.meta_ads.found else []
+    ispot_ads = report.ispot_ads.ads if report.ispot_ads.found else []
+    yt_ads = report.youtube_ads.ads if report.youtube_ads.found else []
+    all_ads = meta_ads + ispot_ads + yt_ads
+    milled = report.milled_intel
+    e = report.enrichment
+
+    if not all_ads and not (milled and milled.found):
+        return """<section>
+  <h2>Creative &amp; Messaging Signals</h2>
+  <p style="color:var(--muted);padding:20px 0">No ads or promotional emails discovered — insufficient data for creative analysis.</p>
+</section>"""
+
+    # Format detection
+    formats_detected: dict[str, int] = {}
+    for ad in all_ads:
+        fmt = (ad.format or "unknown").lower()
+        if "video" in fmt or ad.video_url:
+            formats_detected["Video"] = formats_detected.get("Video", 0) + 1
+        elif "image" in fmt or "static" in fmt:
+            formats_detected["Static Image"] = formats_detected.get("Static Image", 0) + 1
+        elif "carousel" in fmt:
+            formats_detected["Carousel"] = formats_detected.get("Carousel", 0) + 1
+        else:
+            formats_detected["Other"] = formats_detected.get("Other", 0) + 1
+
+    # Duration analysis
+    durations = [a.duration_seconds for a in all_ads if a.duration_seconds]
+    duration_html = ""
+    if durations:
+        avg_dur = sum(durations) / len(durations)
+        min_dur = min(durations)
+        max_dur = max(durations)
+        duration_html = (
+            f'<div class="detail-row"><span class="lbl">Avg Duration</span>'
+            f'<span class="val">{avg_dur:.0f}s (range: {min_dur}–{max_dur}s)</span></div>'
+        )
+
+    # Messaging theme detection from ad titles and milled subjects
+    _theme_keywords = {
+        "Price": ["discount", "off", "sale", "save", "%", "deal", "price", "free shipping", "bogo", "clearance"],
+        "Quality": ["premium", "quality", "handmade", "artisan", "crafted", "luxury", "organic", "natural"],
+        "Outcomes": ["results", "transform", "before", "after", "proven", "clinically", "works", "effective"],
+        "Trust": ["review", "rated", "trusted", "award", "certified", "guarantee", "money back"],
+        "Speed / Convenience": ["fast", "easy", "simple", "delivered", "doorstep", "minutes", "instant", "quick"],
+    }
+
+    text_corpus = " ".join([
+        (a.title or "") for a in all_ads
+    ] + [
+        (e.subject or "") for e in (milled.emails if milled and milled.found else [])
+    ]).lower()
+
+    themes_found: list[tuple[str, int]] = []
+    for theme, keywords in _theme_keywords.items():
+        hits = sum(1 for k in keywords if k in text_corpus)
+        if hits > 0:
+            themes_found.append((theme, hits))
+    themes_found.sort(key=lambda x: x[1], reverse=True)
+
+    # Offer detection from Milled
+    offers: list[str] = []
+    if milled and milled.found:
+        cats = milled.promo_categories
+        if cats.get("sale", 0) > 0:
+            offers.append(f"Sales/Discounts ({cats['sale']} emails)")
+        if cats.get("bfcm", 0) > 0:
+            offers.append(f"BFCM campaigns ({cats['bfcm']} emails)")
+        if cats.get("product_launch", 0) > 0:
+            offers.append(f"Product Launches ({cats['product_launch']} emails)")
+        if cats.get("seasonal", 0) > 0:
+            offers.append(f"Seasonal promos ({cats['seasonal']} emails)")
+        if milled.emails_per_week > 3:
+            offers.append(f"High email cadence ({milled.emails_per_week:.1f}/week)")
+
+    # Build format pills
+    format_pills = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;'
+        f'background:var(--bg-grey);border:1px solid var(--border);border-radius:8px;'
+        f'font-size:.84rem;font-weight:600">{_esc(fmt)} '
+        f'<span style="color:var(--muted);font-weight:400">({count})</span></span>'
+        for fmt, count in sorted(formats_detected.items(), key=lambda x: x[1], reverse=True)
+    )
+
+    # Build theme bars
+    max_hits = themes_found[0][1] if themes_found else 1
+    theme_bars = "".join(
+        f'<div style="margin-bottom:8px">'
+        f'<div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:2px">'
+        f'<span style="font-weight:600">{_esc(theme)}</span>'
+        f'<span style="color:var(--muted)">{hits} signal{"s" if hits != 1 else ""}</span></div>'
+        f'<div style="height:6px;background:var(--border);border-radius:3px">'
+        f'<div style="height:6px;background:var(--teal);border-radius:3px;width:{min(hits / max_hits * 100, 100):.0f}%"></div>'
+        f'</div></div>'
+        for theme, hits in themes_found
+    ) if themes_found else '<p style="color:var(--muted);font-size:.84rem">No messaging themes detected</p>'
+
+    offers_html = "".join(
+        f'<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:.84rem">{_esc(o)}</div>'
+        for o in offers
+    ) if offers else '<p style="color:var(--muted);font-size:.84rem">No promotional offers detected</p>'
+
+    return f"""<section>
+  <h2>Creative &amp; Messaging Signals</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <div>
+      <h3 style="font-size:.9rem;color:var(--muted);margin-bottom:10px">Creative Formats Used</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">{format_pills}</div>
+      {duration_html}
+      <h3 style="font-size:.9rem;color:var(--muted);margin:16px 0 10px">Offers &amp; Promotions</h3>
+      {offers_html}
+    </div>
+    <div>
+      <h3 style="font-size:.9rem;color:var(--muted);margin-bottom:10px">Messaging Themes</h3>
+      {theme_bars}
+    </div>
+  </div>
+</section>"""
+
+
+def _ctv_youtube_hypotheses(report: DomainAdReport, fit: UpscaleFitResult) -> str:
+    """Section 3: CTV & YouTube Hypotheses — why now, best products, creative angles, test budget."""
+    e = report.enrichment
+    bi = report.brand_intel
+    mix = report.channel_mix
+    milled = report.milled_intel
+
+    company = _esc(report.company_name or report.domain)
+    industry = _esc(e.industry) if e and e.industry else "their category"
+
+    # Why CTV now
+    why_now: list[str] = []
+    if not mix.has_linear:
+        why_now.append("No CTV presence detected — greenfield opportunity to own the streaming channel before competitors move in.")
+    if bi.competitors_on_ctv:
+        comps = ", ".join(bi.competitors_on_ctv[:3])
+        why_now.append(f"Competitors already on CTV ({comps}) — risk of falling behind in share of voice.")
+    if e and e.estimated_monthly_revenue and e.estimated_monthly_revenue >= 500_000:
+        why_now.append("Revenue scale supports meaningful CTV test budget without over-indexing on a single channel.")
+    if mix.has_meta and not mix.has_linear:
+        why_now.append("Strong Meta foundation means retargeting audiences are already built — CTV adds top-of-funnel awareness that Meta can convert.")
+    if milled and milled.has_bfcm:
+        why_now.append("BFCM promotional history shows seasonal scaling capability — CTV can amplify peak season reach.")
+    if bi.analytics_maturity in ("intermediate", "advanced"):
+        why_now.append("Mature analytics stack can measure CTV impact through attribution and incrementality.")
+    if not why_now:
+        why_now.append(f"CTV represents an untapped awareness channel for {company} to reach cord-cutting consumers in {industry}.")
+
+    # Best products/offers for TV
+    products: list[str] = []
+    if e and e.avg_product_price:
+        products.append(f"Hero products at {_esc(e.avg_product_price)} price point — strong for TV impulse consideration.")
+    pm = bi.purchase_model
+    if pm and pm.value == "subscription":
+        products.append("Subscription offer — TV drives trial subscriptions with strong LTV payback.")
+    elif pm and pm.value == "high_repurchase":
+        products.append("Replenishable products — CTV awareness drives first purchase, natural repurchase follows.")
+    if milled and milled.promo_categories.get("product_launch", 0) > 0:
+        products.append("New product launches — TV is the fastest way to build awareness for a new SKU at scale.")
+    if not products:
+        products.append("Lead with bestsellers or hero SKU — highest conversion probability from new TV-driven traffic.")
+
+    # Creative angles
+    angles: list[str] = []
+    if e and e.review_rating and e.review_rating >= 4.0:
+        angles.append(f"Social proof: {e.review_rating}★ rating across {_fmt_number(e.review_count)} reviews — trust-building TV creative.")
+    angles.append("Product demo / unboxing — show the product in use within the first 3 seconds to hook viewers.")
+    if pm and pm.value == "subscription":
+        angles.append("Subscription value prop — \"Delivered to your door\" messaging with clear savings.")
+    angles.append("Founder story / brand origin — builds emotional connection on a medium that rewards storytelling.")
+    if bi.competitors_on_ctv:
+        angles.append("Competitive differentiation — position against alternatives already advertising on TV.")
+
+    # Test budget
+    budget_low = 15_000
+    budget_high = 50_000
+    if bi.spend_estimate and bi.spend_estimate.recommended_ctv_test:
+        budget_low = int(bi.spend_estimate.recommended_ctv_test * 0.8)
+        budget_high = int(bi.spend_estimate.recommended_ctv_test * 1.5)
+
+    why_items = "".join(f'<li style="margin-bottom:8px">{_esc(w)}</li>' for w in why_now)
+    product_items = "".join(f'<li style="margin-bottom:8px">{_esc(p)}</li>' for p in products)
+    angle_items = "".join(f'<li style="margin-bottom:8px">{_esc(a)}</li>' for a in angles)
+
+    return f"""<section>
+  <h2>CTV &amp; YouTube Hypotheses</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <div>
+      <h3 style="font-size:.9rem;color:var(--pink);margin-bottom:10px">Why CTV / YouTube Now</h3>
+      <ul style="font-size:.84rem;padding-left:18px;color:var(--navy);line-height:1.7">{why_items}</ul>
+      <h3 style="font-size:.9rem;color:var(--pink);margin:20px 0 10px">Best Products for TV</h3>
+      <ul style="font-size:.84rem;padding-left:18px;color:var(--navy);line-height:1.7">{product_items}</ul>
+    </div>
+    <div>
+      <h3 style="font-size:.9rem;color:var(--pink);margin-bottom:10px">Creative Angles for CTV</h3>
+      <ul style="font-size:.84rem;padding-left:18px;color:var(--navy);line-height:1.7">{angle_items}</ul>
+      <div style="margin-top:20px;padding:18px;background:var(--pink-light);border-radius:12px">
+        <h3 style="font-size:.9rem;margin-bottom:8px">Suggested Test Budget</h3>
+        <div style="font-size:1.4rem;font-weight:800;color:var(--pink)">{_fmt_money(budget_low)} – {_fmt_money(budget_high)}<span style="font-size:.8rem;font-weight:500;color:var(--muted)"> /month</span></div>
+        <p style="font-size:.78rem;color:var(--muted);margin-top:6px">Recommended 3-month pilot across CTV + YouTube to build statistical significance.</p>
+      </div>
+    </div>
+  </div>
+</section>"""
+
+
+def _buying_committee(report: DomainAdReport) -> str:
+    """Section 4: Buying Committee & Champion Mapping."""
+    contacts = report.contact_intel.contacts if report.contact_intel.found else []
+    e = report.enrichment
+    pulse = report.company_pulse
+
+    # Role classification
+    _BUDGET_TITLES = ["cmo", "vp marketing", "head of marketing", "director of marketing", "chief marketing", "svp marketing"]
+    _GATE_TITLES = ["head of growth", "director of growth", "vp growth", "performance", "paid media", "acquisition", "demand gen"]
+    _CREATIVE_TITLES = ["creative director", "head of creative", "brand director", "content", "design"]
+    _CHAMPION_TITLES = ["growth", "paid", "media", "performance", "digital marketing", "acquisition"]
+
+    budget_owner = None
+    gatekeeper = None
+    creative_stake = None
+    champion = None
+
+    for c in contacts:
+        title_lower = (c.title or "").lower()
+        name = f"{c.first_name or ''} {c.last_name or ''}".strip() or c.email or "Unknown"
+
+        if not budget_owner and any(t in title_lower for t in _BUDGET_TITLES):
+            budget_owner = (name, c.title, c.linkedin_url)
+        if not gatekeeper and any(t in title_lower for t in _GATE_TITLES):
+            gatekeeper = (name, c.title, c.linkedin_url)
+        if not creative_stake and any(t in title_lower for t in _CREATIVE_TITLES):
+            creative_stake = (name, c.title, c.linkedin_url)
+        if not champion and any(t in title_lower for t in _CHAMPION_TITLES):
+            champion = (name, c.title, c.linkedin_url)
+
+    def _contact_card(label: str, person: tuple | None, fallback_title: str, icon: str) -> str:
+        if person:
+            name, title, linkedin = person
+            link = f' <a href="{_esc(linkedin)}" target="_blank" style="color:var(--teal);font-size:.75rem">LinkedIn →</a>' if linkedin else ""
+            return (
+                f'<div style="padding:16px;background:var(--bg-grey);border-radius:10px">'
+                f'<div style="font-size:1.1rem;margin-bottom:6px">{icon}</div>'
+                f'<div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">{label}</div>'
+                f'<div style="font-size:.92rem;font-weight:700;margin-top:4px">{_esc(name)}</div>'
+                f'<div style="font-size:.82rem;color:var(--muted)">{_esc(title)}{link}</div></div>'
+            )
+        return (
+            f'<div style="padding:16px;background:var(--bg-grey);border-radius:10px;opacity:.6">'
+            f'<div style="font-size:1.1rem;margin-bottom:6px">{icon}</div>'
+            f'<div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">{label}</div>'
+            f'<div style="font-size:.88rem;font-weight:600;color:var(--muted);margin-top:4px">Not identified</div>'
+            f'<div style="font-size:.78rem;color:var(--muted)">Look for: {fallback_title}</div></div>'
+        )
+
+    cards = (
+        _contact_card("Budget Owner", budget_owner, "CMO / VP Marketing", "&#x1f4b0;")
+        + _contact_card("Technical Gatekeeper", gatekeeper, "Head of Growth / Paid Media", "&#x1f6e1;")
+        + _contact_card("Creative Stakeholder", creative_stake, "Creative Director / Brand Lead", "&#x1f3a8;")
+        + _contact_card("Best Champion", champion, "Growth / Performance Marketing Manager", "&#x1f31f;")
+    )
+
+    # Potential objections by role
+    objections = [
+        ("CMO / Budget Owner", "\"We're not ready to test a new channel\" — Counter: Upscale's $500 creative cost and 6-day launch means minimal commitment."),
+        ("Growth / Paid Lead", "\"How do we measure CTV?\" — Counter: Native Shopify attribution with 3-day view-through window, plus built-in incrementality."),
+        ("Creative Team", "\"We don't have TV-ready creative\" — Counter: Upscale produces 2-20+ CTV variations/month from existing brand assets."),
+        ("Finance / CEO", "\"CTV is too expensive\" — Counter: Bundled pricing (creative + media + measurement), no hidden margins, YouTube included."),
+    ]
+
+    obj_html = "".join(
+        f'<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
+        f'<div style="font-size:.82rem;font-weight:700;color:var(--navy)">{_esc(role)}</div>'
+        f'<div style="font-size:.82rem;color:#304249;margin-top:2px">{_esc(obj)}</div></div>'
+        for role, obj in objections
+    )
+
+    return f"""<section>
+  <h2>Buying Committee &amp; Champion Mapping</h2>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+    {cards}
+  </div>
+  <h3 style="font-size:.9rem;color:var(--muted);margin-bottom:10px">Potential Objections by Role</h3>
+  {obj_html}
+</section>"""
+
+
+def _call_talk_track(report: DomainAdReport, fit: UpscaleFitResult) -> str:
+    """Section 5: Call Talk Track — opening insights, discovery questions, proof points, CTA."""
+    e = report.enrichment
+    bi = report.brand_intel
+    mix = report.channel_mix
+    company = _esc(report.company_name or report.domain)
+
+    # 3 Opening insights
+    insights: list[str] = []
+
+    # Insight 1: Revenue/scale
+    if e and e.estimated_annual_revenue:
+        rev = _fmt_money(e.estimated_annual_revenue)
+        insights.append(f"\"I see {company} is doing roughly {rev}/year — brands at your scale typically see 3-6x ROAS on CTV within the first 90 days.\"")
+    elif e and e.estimated_monthly_revenue:
+        rev = _fmt_money(e.estimated_monthly_revenue)
+        insights.append(f"\"At ~{rev}/month in revenue, {company} is at the sweet spot where CTV starts paying for itself through incremental new customer acquisition.\"")
+    else:
+        insights.append(f"\"From what I can see, {company} has strong brand presence — brands like yours are the ones who benefit most from CTV's ability to reach new audiences at scale.\"")
+
+    # Insight 2: Competitive/channel
+    if bi.competitors_on_ctv:
+        comps = " and ".join(bi.competitors_on_ctv[:2])
+        insights.append(f"\"I noticed {comps} {'are' if len(bi.competitors_on_ctv) > 1 else 'is'} already running CTV campaigns — there's a window to match their reach before they build too much share of voice.\"")
+    elif mix.has_meta and not mix.has_linear:
+        insights.append(f"\"You're clearly investing in Meta — CTV is the natural next step to drive top-of-funnel awareness that feeds your Meta retargeting.\"")
+    else:
+        insights.append(f"\"47% of all TV viewing is now streaming — that's where {company}'s next customers are watching.\"")
+
+    # Insight 3: Tech/creative
+    if e and e.ecommerce_platform and "shopify" in (e.ecommerce_platform or "").lower():
+        insights.append(f"\"Since you're on Shopify, our native integration means we can track purchases directly — no separate attribution platform needed.\"")
+    elif bi.analytics_maturity == "advanced":
+        insights.append(f"\"Your analytics stack is sophisticated — you'll appreciate that Upscale provides deterministic purchase attribution, not just modeled estimates.\"")
+    else:
+        insights.append(f"\"One thing brands love about Upscale is we handle creative production at 95% lower cost than traditional TV — $500 vs the typical $10K+ per spot.\"")
+
+    # 5 Discovery questions
+    questions = [
+        f"What channels are driving the most efficient new customer acquisition for {company} today?",
+        "Have you tested any upper-funnel channels (TV, CTV, YouTube) before? What was the experience?",
+        "How are you currently thinking about measurement and attribution across channels?",
+        "What does your creative production process look like — in-house, agency, or a mix?",
+        "What's the biggest growth challenge you're trying to solve this quarter?",
+    ]
+
+    # 3 Proof points
+    proof_points = [
+        "Branch Furniture: $50K savings vs previous provider, 6.2x ROAS, 500+ monthly purchases from CTV.",
+        "fatty15: 3.65x blended ROAS, 69% first-time buyers, proving CTV drives new customer acquisition.",
+        "Newton Baby: 40% lower CPA than previous CTV provider with 80+ creative variations tested.",
+    ]
+
+    # Next step CTA
+    cta = f"\"Let's set up a 30-minute deep dive where I can show you exactly how {company}'s Shopify data would flow through our platform and model out a 90-day pilot. I'll bring mock creative based on your brand assets.\""
+
+    insight_items = "".join(
+        f'<div style="padding:12px 16px;background:var(--bg-grey);border-radius:10px;margin-bottom:8px;'
+        f'font-size:.84rem;line-height:1.6;border-left:3px solid var(--pink)">{i}</div>'
+        for i in insights
+    )
+
+    question_items = "".join(
+        f'<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:.84rem;display:flex;gap:8px">'
+        f'<span style="color:var(--teal);font-weight:700;flex-shrink:0">{idx}.</span>'
+        f'<span>{_esc(q)}</span></div>'
+        for idx, q in enumerate(questions, 1)
+    )
+
+    proof_items = "".join(
+        f'<div style="padding:10px 14px;background:#F0FDFA;border:1px solid #99F6E4;border-radius:10px;'
+        f'margin-bottom:8px;font-size:.84rem;line-height:1.5">{_esc(p)}</div>'
+        for p in proof_points
+    )
+
+    return f"""<section>
+  <h2>Call Talk Track</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <div>
+      <h3 style="font-size:.9rem;color:var(--pink);margin-bottom:10px">3 Opening Insights</h3>
+      {insight_items}
+      <h3 style="font-size:.9rem;color:var(--pink);margin:20px 0 10px">5 Discovery Questions</h3>
+      {question_items}
+    </div>
+    <div>
+      <h3 style="font-size:.9rem;color:var(--teal);margin-bottom:10px">Upscale Proof Points</h3>
+      {proof_items}
+      <div style="margin-top:20px;padding:18px;background:var(--navy);border-radius:12px;color:white">
+        <h3 style="font-size:.85rem;color:rgba(255,255,255,.7);margin-bottom:8px">Recommended Next Step</h3>
+        <p style="font-size:.88rem;line-height:1.6">{cta}</p>
+      </div>
+    </div>
+  </div>
+</section>"""
+
+
+def _account_priority_signal(report: DomainAdReport, fit: UpscaleFitResult) -> str:
+    """Section 6: Account Priority Signal — High/Medium/Low with justification."""
+    e = report.enrichment
+    bi = report.brand_intel
+    mix = report.channel_mix
+
+    score = fit.total_score
+    signals_pro: list[str] = []
+    signals_con: list[str] = []
+
+    # Revenue scale
+    if e and e.estimated_annual_revenue:
+        if e.estimated_annual_revenue >= 10_000_000:
+            signals_pro.append(f"Strong revenue ({_fmt_money(e.estimated_annual_revenue)}/yr) — can sustain meaningful CTV budget")
+        elif e.estimated_annual_revenue >= 2_000_000:
+            signals_pro.append(f"Moderate revenue ({_fmt_money(e.estimated_annual_revenue)}/yr) — viable for CTV pilot")
+        else:
+            signals_con.append(f"Lower revenue ({_fmt_money(e.estimated_annual_revenue)}/yr) — may limit initial CTV budget")
+
+    # Shopify
+    if e and e.ecommerce_platform and "shopify" in (e.ecommerce_platform or "").lower():
+        signals_pro.append("On Shopify — native Upscale integration available")
+    elif e and e.ecommerce_platform:
+        signals_con.append(f"Not on Shopify ({_esc(e.ecommerce_platform)}) — no native integration")
+
+    # Existing CTV
+    if report.competitor_detection.found:
+        signals_con.append(f"Active CTV competitor client ({', '.join(report.competitor_detection.competitors_detected)}) — displacement sale")
+    elif not mix.has_linear:
+        signals_pro.append("No CTV presence — greenfield opportunity")
+
+    # Ad activity
+    if mix.total_ads_found >= 5:
+        signals_pro.append(f"Active advertiser ({mix.total_ads_found} ads found) — established paid media practice")
+    elif mix.total_ads_found == 0:
+        signals_con.append("No ads detected — may not be investing in paid acquisition")
+
+    # Competitor CTV activity
+    if bi.competitors_on_ctv:
+        signals_pro.append(f"Competitors on CTV ({', '.join(bi.competitors_on_ctv[:2])}) — urgency to match")
+
+    # Contact availability
+    if report.contact_intel.found and report.contact_intel.discovered_count > 0:
+        signals_pro.append(f"{report.contact_intel.discovered_count} contacts discovered — outreach-ready")
+    else:
+        signals_con.append("No contacts discovered — requires manual prospecting")
+
+    # CRM context
+    if report.company_pulse.found and report.company_pulse.current_status:
+        signals_pro.append(f"CRM status: {_esc(report.company_pulse.current_status)}")
+
+    # Priority determination
+    pro_count = len(signals_pro)
+    con_count = len(signals_con)
+
+    if score >= 70 and pro_count >= 4:
+        priority = "High Priority"
+        priority_icon = "&#x1f525;"
+        priority_color = "var(--success)"
+        bg_color = "#ECFDF5"
+        border_color = "#A7F3D0"
+    elif score >= 45 or pro_count >= 3:
+        priority = "Medium Priority"
+        priority_icon = "&#x26a0;&#xfe0f;"
+        priority_color = "var(--warning)"
+        bg_color = "#FFFBEB"
+        border_color = "#FDE68A"
+    else:
+        priority = "Low Priority"
+        priority_icon = "&#x274c;"
+        priority_color = "var(--danger)"
+        bg_color = "#FEF2F2"
+        border_color = "#FECACA"
+
+    # Justification
+    if signals_pro:
+        top_reasons = signals_pro[:3]
+        justification = " | ".join(top_reasons)
+    else:
+        justification = "Insufficient positive signals for prioritization"
+
+    pro_items = "".join(
+        f'<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:.84rem">'
+        f'<span style="color:var(--success);flex-shrink:0;font-weight:700">+</span>'
+        f'<span>{_esc(s)}</span></div>'
+        for s in signals_pro
+    )
+    con_items = "".join(
+        f'<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:.84rem">'
+        f'<span style="color:var(--danger);flex-shrink:0;font-weight:700">–</span>'
+        f'<span>{_esc(s)}</span></div>'
+        for s in signals_con
+    )
+
+    return f"""<section>
+  <h2>Account Priority Signal</h2>
+  <div style="padding:24px;background:{bg_color};border:2px solid {border_color};border-radius:14px;margin-bottom:20px;text-align:center">
+    <div style="font-size:2rem;margin-bottom:4px">{priority_icon}</div>
+    <div style="font-size:1.5rem;font-weight:800;color:{priority_color}">{priority}</div>
+    <p style="font-size:.88rem;color:var(--navy);margin-top:8px">{_esc(justification)}</p>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Upscale Fit Score: {fit.total_score:.0f}/100 ({fit.grade})</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div>
+      <h3 style="font-size:.9rem;color:var(--success);margin-bottom:10px">Positive Signals ({pro_count})</h3>
+      {pro_items or '<p style="color:var(--muted);font-size:.84rem">None identified</p>'}
+    </div>
+    <div>
+      <h3 style="font-size:.9rem;color:var(--danger);margin-bottom:10px">Risk Signals ({con_count})</h3>
+      {con_items or '<p style="color:var(--muted);font-size:.84rem">None identified</p>'}
+    </div>
+  </div>
 </section>"""
