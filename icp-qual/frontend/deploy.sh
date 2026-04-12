@@ -16,7 +16,8 @@ set -euo pipefail
 PROJECT=$(gcloud config get-value project)
 REGION="us-central1"
 SERVICE="upscale-icp-frontend"
-IMAGE="gcr.io/${PROJECT}/${SERVICE}"
+REPOSITORY="cloud-run-images"
+IMAGE="us-central1-docker.pkg.dev/${PROJECT}/${REPOSITORY}/${SERVICE}:latest"
 
 BACKEND_URL="${PIPELINE_BACKEND_URL:-http://localhost:8000}"
 PASSWORD="${SITE_PASSWORD:-scalewithupscale}"
@@ -24,7 +25,6 @@ PASSWORD="${SITE_PASSWORD:-scalewithupscale}"
 echo "→ Building and pushing image: ${IMAGE}"
 gcloud builds submit \
   --tag "${IMAGE}" \
-  --build-arg "PIPELINE_BACKEND_URL=${BACKEND_URL}" \
   .
 
 echo "→ Deploying Cloud Run service: ${SERVICE}"
@@ -42,6 +42,10 @@ SERVICE_URL=$(gcloud run services describe "${SERVICE}" \
 
 echo ""
 echo "✓ Service deployed: ${SERVICE_URL}"
+echo ""
+echo "Current production routing:"
+echo "  https://demoupscale.com      -> upscale-reports"
+echo "  https://demoupscale.com/icp  -> upscale-icp-frontend"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  NEXT STEP: Route demoupscale.com/icp → this service"

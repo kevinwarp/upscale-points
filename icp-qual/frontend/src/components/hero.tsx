@@ -60,7 +60,8 @@ export function Hero() {
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="Enter a domain (e.g. summerfridays.com)"
-                className="w-full pl-10 pr-4 py-3 text-base"
+                className="w-full pr-4 py-3 text-base"
+                style={{ paddingLeft: "2.5rem" }}
                 disabled={loading}
               />
               <svg

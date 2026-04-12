@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ICP Qualification Frontend
 
-## Getting Started
+Next.js 16 frontend for the ICP qualification flow and pipeline run monitor.
 
-First, run the development server:
+## Local development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Runtime architecture
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- App framework: Next.js 16 / React 19
+- Runtime target: Cloud Run
+- Image build: Docker multi-stage build with Next.js `standalone` output
+- Auth: password gate via `src/middleware.ts`
+- Backend integration: frontend API routes proxy to the Python pipeline backend with `PIPELINE_BACKEND_URL`
 
-## Learn More
+## Production URLs
 
-To learn more about Next.js, take a look at the following resources:
+- `https://demoupscale.com` → existing `upscale-reports` service
+- `https://demoupscale.com/icp` → this frontend (`upscale-icp-frontend`)
+- Direct Cloud Run URL: `https://upscale-icp-frontend-ghy5squ27q-uc.a.run.app/icp`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Infrastructure configuration
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Cloud Run services
 
-## Deploy on Vercel
+- `upscale-reports`: existing root-site service
+- `upscale-icp-frontend`: standalone Next.js service for the ICP app
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Path routing
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The frontend is deployed under the `/icp` path prefix.
+
+- `next.config.ts` sets `basePath: "/icp"`
+- The global HTTP(S) load balancer routes:
+  - `/` → `backend-upscale-reports`
+  - `/icp` and `/icp/*` → `backend-icp-frontend`
+
+### Google Cloud resources
+
+- Global static IP: `34.49.156.96`
+- Managed certificate in front of `demoupscale.com`
+- Serverless NEGs:
+  - `neg-upscale-reports`
+  - `neg-icp-frontend`
+- Backend services:
+  - `backend-upscale-reports`
+  - `backend-icp-frontend`
+- URL map: `demoupscale-url-map`
+
+### DNS
+
+Cloud DNS zone: `demoupscale`
+
+Current public records:
+
+- `demoupscale.com A 34.49.156.96`
+- `www.demoupscale.com A 34.49.156.96`
+
+## Environment variables
+
+- `PIPELINE_BACKEND_URL`: Python API base URL for `/api/pipeline/*` and `/api/reports`
+- `SITE_PASSWORD`: password used by the middleware login gate
+- `NODE_ENV=production`: production runtime mode
+
+## Deploying
+
+Use `deploy.sh` to build and deploy the frontend service:
+
+```bash
+PIPELINE_BACKEND_URL=https://your-backend.run.app \
+SITE_PASSWORD=your-password \
+./deploy.sh
+```
+
+The script:
+
+1. Builds and pushes the image to Artifact Registry
+2. Deploys `upscale-icp-frontend` to Cloud Run
+3. Prints the service URL and reminders for load balancer path routing
+
+## Important implementation detail
+
+Because the app is mounted under `/icp`, the middleware login page must submit to `/icp/api/auth` rather than `/api/auth`. That path is hard-coded inside the inline login HTML in `src/middleware.ts`.

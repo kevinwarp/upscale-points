@@ -78,7 +78,7 @@ function loginPage(): string {
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const pw = document.getElementById('pw').value;
-      const res = await fetch('/api/auth', {
+      const res = await fetch('/icp/api/auth', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({password: pw})

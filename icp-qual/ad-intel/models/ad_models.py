@@ -115,6 +115,7 @@ class MilledIntel(BaseModel):
     has_bfcm: bool = False
     has_seasonal_sales: bool = False
     promo_categories: dict[str, int] = Field(default_factory=dict)  # category -> count
+    error: Optional[str] = None
 
 
 class WaybackEventHit(BaseModel):

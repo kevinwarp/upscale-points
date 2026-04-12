@@ -42,24 +42,24 @@ interface StepDef {
 
 const PIPELINE_STEPS: StepDef[] = [
   // Phase 1 — Core Intelligence
-  { name: "storeleads", label: "StoreLeads enrichment", phase: 1, icon: "🏪" },
-  { name: "clay", label: "Clay enrichment + jobs", phase: 1, icon: "🧱" },
-  { name: "contacts", label: "Contact discovery", phase: 1, icon: "👥" },
-  { name: "ispot", label: "iSpot TV ads", phase: 1, icon: "📺" },
-  { name: "youtube", label: "YouTube ad library", phase: 1, icon: "▶️" },
-  { name: "meta", label: "Meta ad library", phase: 1, icon: "📱" },
-  { name: "milled", label: "Milled email intel", phase: 1, icon: "✉️" },
-  { name: "competitor", label: "Competitor analysis", phase: 1, icon: "🔍" },
-  { name: "scoring", label: "ICP fit scoring", phase: 1, icon: "📊" },
+  { name: "storeleads", label: "1. StoreLeads enrichment", phase: 1, icon: "🏪" },
+  { name: "company_pulse", label: "2. CRM data lookup", phase: 1, icon: "💼" },
+  { name: "contact_search", label: "3. Contact discovery", phase: 1, icon: "👥" },
+  { name: "clay_enrichment", label: "4. Clay enrichment + jobs", phase: 1, icon: "🧱" },
+  { name: "creative_pipeline", label: "5. AI creative generation", phase: 1, icon: "🎨" },
+  { name: "voiceover", label: "6. AI voiceover generation", phase: 1, icon: "🎧" },
+  { name: "browser", label: "7. Browser launch", phase: 1, icon: "🌐" },
+  { name: "scrapers", label: "8. Ad scraping (iSpot + YouTube + Meta + Milled)", phase: 1, icon: "📺" },
+  { name: "analysis", label: "9. Channel mix & brand intelligence", phase: 1, icon: "📊" },
+  { name: "extended_scrapers", label: "10. Google Trends + competitor landscape", phase: 1, icon: "🔍" },
+  { name: "competitor_enrichment", label: "11. Competitor enrichment", phase: 1, icon: "🏢" },
   // Phase 2 — Deep Research
-  { name: "news_search", label: "News & media search", phase: 2, icon: "📰" },
-  { name: "thought_leadership", label: "Podcasts & thought leadership", phase: 2, icon: "🎙️" },
-  { name: "case_study_search", label: "Platform case studies", phase: 2, icon: "📋" },
-  // Report Generation
-  { name: "voiceover", label: "AI voiceover generation", phase: 1, icon: "🎧" },
-  { name: "pitch_report", label: "Pitch report", phase: 1, icon: "🎯" },
-  { name: "internal_report", label: "Internal report", phase: 1, icon: "📝" },
-  { name: "slack", label: "Slack delivery", phase: 1, icon: "💬" },
+  { name: "news_search", label: "12. News & media search", phase: 2, icon: "📰" },
+  { name: "thought_leadership", label: "13. Podcasts & thought leadership", phase: 2, icon: "🎙️" },
+  { name: "case_study_search", label: "14. Platform case studies", phase: 2, icon: "📋" },
+  // Report Generation & Delivery
+  { name: "reports", label: "15. Report generation", phase: 1, icon: "📝" },
+  { name: "slack", label: "16. Slack delivery", phase: 1, icon: "💬" },
 ];
 
 /* ── Status icon ────────────────────────────────────────────── */
@@ -145,20 +145,20 @@ function GradeBadge({ grade, score }: { grade: string; score: number }) {
 
 const MOCK_STEP_DATA: Record<string, { detail: string; data?: Record<string, unknown> }> = {
   storeleads: { detail: "Shopify Plus · $2.4M/yr revenue · 45 employees", data: { revenue: "$2.4M/yr" } },
-  clay: { detail: "3 competitors · Subscription model · 12% headcount growth · 5 open jobs", data: { jobs: 5 } },
-  contacts: { detail: "4 contacts found: VP Marketing, Head of Growth, Creative Director", data: { count: 4 } },
-  ispot: { detail: "No CTV/linear TV ads detected — greenfield opportunity", data: { ads: 0 } },
-  youtube: { detail: "3 YouTube ads found (15s, 30s formats)", data: { ads: 3 } },
-  meta: { detail: "12 Meta ads running · Video + Carousel formats", data: { ads: 12 } },
-  milled: { detail: "48 promotional emails · 2.3/week · BFCM campaigns detected", data: { emails: 48 } },
-  competitor: { detail: "5 competitors enriched · 2 active on CTV", data: { competitors: 5 } },
-  scoring: { detail: "Score: 74/100 (B) — Good fit for CTV pilot", data: { score: 74, grade: "B" } },
+  company_pulse: { detail: "CRM: Active (85/100), 3 contacts, 1 deal", data: {} },
+  contact_search: { detail: "4 contacts found: VP Marketing, Head of Growth, Creative Director", data: { count: 4 } },
+  clay_enrichment: { detail: "3 competitors · Subscription model · 12% headcount growth · 5 open jobs", data: { jobs: 5 } },
+  creative_pipeline: { detail: "4 images, 2 videos generated", data: {} },
+  voiceover: { detail: "3 AI voiceover demos generated (male, female, neutral)", data: { voices: 3 } },
+  browser: { detail: "Browser ready", data: {} },
+  scrapers: { detail: "iSpot: 0, YouTube: 3, Meta: 12, Milled: 48 ads", data: { ads: 63 } },
+  analysis: { detail: "3 platforms, 63 ads total", data: {} },
+  extended_scrapers: { detail: "Trends: rising, Competitors: 5, Wayback: high", data: {} },
+  competitor_enrichment: { detail: "5 competitors enriched · 2 active on CTV", data: { competitors: 5 } },
   news_search: { detail: "3 recent news articles · New product launch detected", data: { articles: 3 } },
   thought_leadership: { detail: "2 podcast appearances by founder", data: { podcasts: 2 } },
   case_study_search: { detail: "1 Shopify case study found with performance metrics", data: { studies: 1 } },
-  voiceover: { detail: "3 AI voiceover demos generated (male, female, neutral)", data: { voices: 3 } },
-  pitch_report: { detail: "HTML pitch report generated with creative showcase", data: {} },
-  internal_report: { detail: "Internal report with 6 AI synthesis sections", data: {} },
+  reports: { detail: "Pitch + Internal reports generated and uploaded", data: {} },
   slack: { detail: "Delivered to #sales with executive summary", data: {} },
 };
 
@@ -273,6 +273,28 @@ export default function RunPage() {
         const res = await fetch(`/api/pipeline/status/${runId}`);
         if (res.ok) {
           const data = await res.json();
+          // Merge backend steps onto known PIPELINE_STEPS so numbering/icons are preserved
+          const knownSteps = buildInitialSteps();
+          const backendMap = new Map<string, StepStatus>();
+          for (const s of (data.steps || [])) {
+            backendMap.set(s.name, s);
+          }
+          // Update known steps with backend data, keep label from PIPELINE_STEPS
+          const mergedSteps = knownSteps.map((ks) => {
+            const bs = backendMap.get(ks.name);
+            if (bs) {
+              backendMap.delete(ks.name);
+              return { ...ks, status: bs.status, detail: bs.detail, duration_seconds: bs.duration_seconds, data: bs.data };
+            }
+            return ks;
+          });
+          // Append any unknown backend steps (numbered from next available)
+          let nextNum = mergedSteps.length + 1;
+          for (const [, bs] of backendMap) {
+            mergedSteps.push({ ...bs, label: bs.label?.match(/^\d+\./) ? bs.label : `${nextNum}. ${bs.label || bs.name}` });
+            nextNum++;
+          }
+          data.steps = mergedSteps;
           setRun(data);
           if (data.status === "done" || data.status === "error") {
             if (intervalRef.current) clearInterval(intervalRef.current);

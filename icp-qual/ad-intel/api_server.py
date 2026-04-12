@@ -70,33 +70,59 @@ class StartResponse(BaseModel):
 # ── Pipeline runner ──────────────────────────────────────────────
 
 async def _run_pipeline_task(run_id: str, domain: str) -> None:
-    """Run the full pipeline in the background."""
+    """Run the full pipeline in the background.
+
+    Each stage is wrapped individually so errors don't prevent subsequent
+    stages from running. Errors are collected and still delivered to Slack.
+    """
     RUNS[run_id]["status"] = "running"
     RUNS[run_id]["started_at"] = datetime.now(timezone.utc).isoformat()
 
+    from orchestrator import run_pipeline
+    from utils.status_reporter import StatusReporter
+    from scoring.upscale_fit import calculate_upscale_fit
+    from reports.publisher import publish_reports
+    from utils.slack_delivery import build_slack_messages, post_to_slack
+
+    status = StatusReporter(domain, output_dir=str(STATUS_DIR / run_id))
+    errors: list[str] = []
+    report = None
+    call_tracker = None
+    fit = None
+    internal_url = None
+    pitch_url = None
+
+    # ── Stage 1: Pipeline (data collection) ─────────────────────
     try:
-        from orchestrator import run_pipeline
-        from utils.status_reporter import StatusReporter
-        from scoring.upscale_fit import calculate_upscale_fit
-        from reports.publisher import publish_reports
-        from utils.slack_delivery import build_slack_messages, post_to_slack
-
-        status = StatusReporter(domain, output_dir=str(STATUS_DIR / run_id))
-
         report, call_tracker = await run_pipeline(
             domain=domain,
             headless=True,
             status=status,
         )
+    except Exception as e:
+        logger.exception(f"Pipeline data collection failed for {run_id}: {e}")
+        errors.append(f"Pipeline: {e}")
 
-        fit = calculate_upscale_fit(report)
+    # ── Stage 2: Scoring ────────────────────────────────────────
+    if report:
+        try:
+            fit = calculate_upscale_fit(report)
+        except Exception as e:
+            logger.warning(f"Scoring failed for {run_id}: {e}")
+            errors.append(f"Scoring: {e}")
 
-        result = await publish_reports(report, upload=True, save_local=True)
+    # ── Stage 3: Report generation & upload ─────────────────────
+    if report:
+        try:
+            result = await publish_reports(report, upload=True, save_local=True)
+            internal_url = result.internal.share_url if result.internal else None
+            pitch_url = result.pitch.share_url if result.pitch else None
+        except Exception as e:
+            logger.warning(f"Report publishing failed for {run_id}: {e}")
+            errors.append(f"Reports: {e}")
 
-        internal_url = result.internal.share_url if result.internal else None
-        pitch_url = result.pitch.share_url if result.pitch else None
-
-        # Slack delivery
+    # ── Stage 4: Slack delivery ─────────────────────────────────
+    if report:
         try:
             slack_main, slack_threads = build_slack_messages(
                 report, fit,
@@ -107,34 +133,51 @@ async def _run_pipeline_task(run_id: str, domain: str) -> None:
             await post_to_slack(slack_main, slack_threads)
         except Exception as e:
             logger.warning(f"Slack delivery failed for {run_id}: {e}")
+            errors.append(f"Slack: {e}")
 
-        RUNS[run_id].update({
-            "status": "done",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "domain": domain,
-            "company_name": report.company_name,
-            "score": fit.total_score,
-            "grade": fit.grade,
-            "pitch_url": pitch_url,
-            "internal_url": internal_url,
-            "revenue": report.storeleads.estimated_revenue if report.storeleads else None,
-            "ads_found": len(report.ispot_ads) + len(report.youtube_ads) + len(report.meta_ads),
-        })
+    # ── Final status update ─────────────────────────────────────
+    final_status = "done" if report else "error"
+    if errors and report:
+        final_status = "done"  # partial success — still mark done
 
-        status.pipeline_complete(
-            fit_score=fit.total_score,
-            fit_grade=fit.grade,
-            internal_url=internal_url,
-            pitch_url=pitch_url,
-        )
+    run_update: dict[str, Any] = {
+        "status": final_status,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "domain": domain,
+    }
 
-    except Exception as e:
-        logger.exception(f"Pipeline failed for {run_id}: {e}")
-        RUNS[run_id].update({
-            "status": "error",
-            "error": str(e),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        })
+    if errors:
+        run_update["errors"] = errors
+        run_update["error"] = "; ".join(errors)
+
+    if report:
+        run_update["company_name"] = report.company_name
+        if fit:
+            run_update["score"] = fit.total_score
+            run_update["grade"] = fit.grade
+        run_update["pitch_url"] = pitch_url
+        run_update["internal_url"] = internal_url
+        try:
+            run_update["revenue"] = report.enrichment.estimated_annual_revenue if report.enrichment else None
+            run_update["ads_found"] = len(report.ispot_ads.ads) + len(report.youtube_ads.ads) + len(report.meta_ads.ads)
+        except Exception:
+            run_update["revenue"] = None
+            run_update["ads_found"] = 0
+
+    RUNS[run_id].update(run_update)
+
+    try:
+        if fit:
+            status.pipeline_complete(
+                fit_score=fit.total_score,
+                fit_grade=fit.grade,
+                internal_url=internal_url,
+                pitch_url=pitch_url,
+            )
+        else:
+            status.pipeline_complete()
+    except Exception:
+        pass
 
 
 # ── Endpoints ────────────────────────────────────────────────────

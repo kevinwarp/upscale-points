@@ -551,10 +551,6 @@ def generate_pitch_report(
     has_klaviyo = _detect_klaviyo(report)
 
     logo_html = ""
-    # Prefer Clay logo (higher quality) over StoreLeads logo
-    logo_url = (intel.logo_url if intel and intel.logo_url else None) or (e.logo_url if e else None)
-    if logo_url:
-        logo_html = f'<img src="{_esc(logo_url)}" alt="{company}" class="brand-logo">'
 
     # Detect brand traits for personalization
     brand_traits = _detect_brand_traits(report)
@@ -591,7 +587,7 @@ def generate_pitch_report(
     results = _build_proven_results(company, e.industry if e else None)
     creative_preview = _build_creative_preview(company, report)
     audio_demos = _build_audio_demos(company, report)
-    creative_showcase = _build_creative_showcase()
+    creative_showcase = _build_creative_showcase(report)
     ad_discovery_video = _build_ad_discovery_video(company, report)
     inventory = _build_inventory()
     next_steps = _build_next_steps(company, budget)
@@ -1445,7 +1441,7 @@ details.collapsible > .collapse-content {{
 /* Lightbox modal */
 .showcase-modal {{ position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.88); display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); }}
 .showcase-modal.open {{ display: flex; }}
-.showcase-modal-inner {{ width: 90%; max-width: 960px; aspect-ratio: 16/9; position: relative; border-radius: 14px; overflow: hidden; background: #000; box-shadow: 0 20px 60px rgba(0,0,0,.5); }}
+.showcase-modal-inner {{ width: 80vw; aspect-ratio: 16/9; position: relative; border-radius: 14px; overflow: hidden; background: #000; box-shadow: 0 20px 60px rgba(0,0,0,.5); }}
 .showcase-modal-inner iframe {{ width: 100%; height: 100%; border: 0; }}
 .showcase-modal-close {{ position: absolute; top: -48px; right: 0; width: 40px; height: 40px; background: rgba(255,255,255,.15); border: none; border-radius: 50%; color: white; font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s; }}
 .showcase-modal-close:hover {{ background: rgba(255,255,255,.3); }}
@@ -1604,22 +1600,22 @@ details.collapsible > .collapse-content {{
   {toc}
   <div id="s-spend-plan">{spend_charts}</div>
   <div id="s-campaign">{campaign_plan}</div>
+  <div id="s-overview">{overview}</div>
+  <div id="s-creative">{creative_system}</div>
+  {creative_preview}
+  {audio_demos}
+  <div id="s-showcase">{creative_showcase}</div>
+  {roi_projection}
   <div id="s-snapshot">{company_snapshot}</div>
   {ad_discovery_video}
   <div id="s-why-brand">{why_brand}</div>
   <div id="s-problem">{problem}</div>
   {objection_killer}
-  <div id="s-overview">{overview}</div>
   <div id="s-audience">{audience_strategy}</div>
   <div id="s-integration">{integration}</div>
   <div id="s-platform">{platform}</div>
-  <div id="s-creative">{creative_system}</div>
-  {roi_projection}
   <div id="s-ctv">{ctv_impact}</div>
   <div id="s-youtube">{youtube_impact}</div>
-  {creative_preview}
-  {audio_demos}
-  <div id="s-showcase">{creative_showcase}</div>
   <div id="s-optimization">{optimization}</div>
   <div id="s-attribution">{attribution}</div>
   <div id="s-competitive">{competitive}</div>
@@ -1730,7 +1726,7 @@ def _build_exec_summary(
   <h2 style="font-size:1.3rem;margin-bottom:8px">Executive Summary</h2>
   <p style="font-size:.95rem;color:#475467;line-height:1.7;max-width:800px">
     {company} is a strong fit for Upscale's streaming TV + YouTube platform.{rev_line} you're actively advertising{channel_gap}.{integration_note}{spend_note}
-    This proposal outlines a {_fmt_money(budget['m1'])}/mo launch plan with $0 management fee, AI-generated creative included, and built-in attribution — live in 14 days.
+    This proposal outlines a {_fmt_money(budget['m1'])}/mo launch plan with $0 monthly management fee, AI-generated creative included, and built-in attribution — live in 14 days.
   </p>
   <div class="exec-kpi-strip">{kpi_html}</div>
 </div>"""
@@ -2129,7 +2125,7 @@ def _build_problem(company, report: DomainAdReport, budget: dict) -> str:
       </div>
       <p style="font-size:1.1rem;font-weight:700;color:var(--pink-glow)">Only {agency_pct}% of your budget actually runs as ads.</p>
       <div style="margin-top:20px;padding:16px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:10px">
-        <p style="font-size:.92rem;color:rgba(255,255,255,.85)">With <strong style="color:#4ADE80">Upscale</strong>: $0 management fee. Creative included. <strong style="color:#4ADE80">100% of your budget goes to media.</strong></p>
+        <p style="font-size:.92rem;color:rgba(255,255,255,.85)">With <strong style="color:#4ADE80">Upscale</strong>: $0 monthly management fee. Creative included. <strong style="color:#4ADE80">100% of your budget goes to media.</strong></p>
       </div>
     </div>
     <div>
@@ -2203,7 +2199,7 @@ def _build_overview(company, budget, monthly_rev, intel: BrandIntelligence | Non
     <div class="card">
       <div class="icon">&#x1f680;</div>
       <h3>Launch Investment</h3>
-      <p>{_fmt_money(budget['m1'])}/month starting budget with ~{_fmt_money(budget['daily'])}/day across {channel_desc}. <strong>$0 management fee</strong> — 100% of this goes to media.</p>
+      <p>{_fmt_money(budget['m1'])}/month starting budget with ~{_fmt_money(budget['daily'])}/day across {channel_desc}. <strong>$0 monthly management fee</strong> — 100% of this goes to media.</p>
     </div>
     <div class="card">
       <div class="icon">&#x1f4ca;</div>
@@ -2267,8 +2263,8 @@ def _build_platform() -> str:
   <p class="section-sub">Three integrated systems that work together — not three separate vendors you have to manage.</p>
   <div class="grid-3">
     <div class="card">
-      <div class="stat-big">95%</div>
-      <div class="stat-label">Creative Cost Savings</div>
+      <div class="stat-big" style="font-size:1.4rem">Creative</div>
+      <div class="stat-label">Included in CTV Campaign</div>
       <h3 style="margin-top:16px">Creative as a System</h3>
       <p>Always-on performance creative engine that generates 2-20+ variations per month. From brief to first ad in <strong>6 days</strong> — vs. 6-7 weeks with traditional production. $500 per creative vs. $10,000+ industry average.</p>
     </div>
@@ -2792,75 +2788,27 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
 </div>"""
 
 
-def _build_ad_discovery_video(company: str, report: DomainAdReport) -> str:
-    """Build an Ad Discovery video preview showing the first discovered video ad.
-
-    Scans all platforms (Meta, iSpot, YouTube) for the first ad with a video_url.
-    Renders an embedded <video> player with context about where the ad was found.
-    """
-    # Find first ad with a video_url across all platforms
-    platforms = [
-        ("Meta Ad Library", report.meta_ads),
-        ("iSpot (CTV/Linear TV)", report.ispot_ads),
-        ("YouTube Ads Transparency", report.youtube_ads),
-    ]
-
-    video_ad = None
-    source_platform = ""
-    total_ads = sum(len(p.ads) for _, p in platforms)
-
-    for plat_name, plat_result in platforms:
-        for ad in plat_result.ads:
-            if ad.video_url:
-                video_ad = ad
-                source_platform = plat_name
-                break
-        if video_ad:
-            break
-
-    if not video_ad:
-        return ""
-
-    # Platform stats for context
-    meta_count = len(report.meta_ads.ads)
-    ispot_count = len(report.ispot_ads.ads)
-    yt_count = len(report.youtube_ads.ads)
-
-    stats_parts = []
-    if meta_count:
-        stats_parts.append(f"{meta_count} Meta")
-    if ispot_count:
-        stats_parts.append(f"{ispot_count} CTV/Linear")
-    if yt_count:
-        stats_parts.append(f"{yt_count} YouTube")
-    stats_line = " + ".join(stats_parts) if stats_parts else f"{total_ads} total"
-
-    title = _esc(video_ad.title or "Untitled Ad")
+def _build_video_card(ad, source_platform: str) -> str:
+    """Build a single MP4 video card for an ad."""
+    title = _esc(ad.title or "Untitled Ad")
     duration_html = ""
-    if video_ad.duration_seconds:
-        mins = video_ad.duration_seconds // 60
-        secs = video_ad.duration_seconds % 60
+    if ad.duration_seconds:
+        secs = ad.duration_seconds % 60
         duration_html = f'<span style="background:var(--teal);color:white;padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:600">:{secs:02d}</span>'
 
     start_date_html = ""
-    if video_ad.start_date:
-        start_date_html = f'<span style="font-size:.78rem;color:var(--muted)">Running since {_esc(video_ad.start_date)}</span>'
+    if ad.start_date:
+        start_date_html = f'<span style="font-size:.78rem;color:var(--muted)">Running since {_esc(ad.start_date)}</span>'
 
     link_html = ""
-    if video_ad.ad_page_url:
-        link_html = f'<a href="{_esc(video_ad.ad_page_url)}" target="_blank" style="font-size:.78rem;color:var(--teal);font-weight:600">View on {_esc(source_platform)} &rarr;</a>'
+    if ad.ad_page_url:
+        link_html = f'<a href="{_esc(ad.ad_page_url)}" target="_blank" style="font-size:.78rem;color:var(--teal);font-weight:600">View on {_esc(source_platform)} &rarr;</a>'
 
-    return f"""<section style="padding:48px 0">
-  <div style="text-align:center;margin-bottom:32px">
-    <div style="font-size:.75rem;text-transform:uppercase;letter-spacing:.12em;color:var(--teal);font-weight:700;margin-bottom:8px">Ad Discovery</div>
-    <h2 style="font-size:1.8rem;margin-bottom:8px">{company}'s Current Advertising</h2>
-    <p style="color:var(--muted);font-size:.9rem">We found <strong>{stats_line}</strong> active ads across platforms. Here's a sample.</p>
-  </div>
-  <div style="max-width:720px;margin:0 auto;background:var(--navy);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.15)">
-    <video controls preload="metadata" style="width:100%;display:block;aspect-ratio:16/9;background:#000"
-      {"poster=" + chr(34) + _esc(video_ad.thumbnail_url) + chr(34) if video_ad.thumbnail_url else ""}>
-      <source src="{_esc(video_ad.video_url)}" type="video/mp4">
-      Your browser does not support the video tag.
+    poster_attr = f'poster="{_esc(ad.thumbnail_url)}"' if ad.thumbnail_url else ""
+
+    return f"""<div style="background:var(--navy);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.15)">
+    <video controls preload="metadata" style="width:100%;display:block;aspect-ratio:16/9;background:#000" {poster_attr}>
+      <source src="{_esc(ad.video_url)}" type="video/mp4">
     </video>
     <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div>
@@ -2872,6 +2820,141 @@ def _build_ad_discovery_video(company: str, report: DomainAdReport) -> str:
       </div>
       {link_html}
     </div>
+  </div>"""
+
+
+def _extract_youtube_video_id(url: str) -> str | None:
+    """Extract YouTube video ID from various URL formats."""
+    import re
+    if not url:
+        return None
+    # adstransparency.google.com URLs don't have video IDs
+    if "adstransparency.google.com" in url:
+        return None
+    # youtube.com/watch?v=ID
+    m = re.search(r'[?&]v=([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return m.group(1)
+    # youtu.be/ID
+    m = re.search(r'youtu\.be/([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return m.group(1)
+    # youtube.com/embed/ID
+    m = re.search(r'youtube\.com/embed/([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _build_youtube_embed(ad, index: int) -> str:
+    """Build a YouTube iframe embed card."""
+    # Try to extract video ID from ad_page_url or video_url
+    vid_id = _extract_youtube_video_id(ad.ad_page_url or "") or _extract_youtube_video_id(ad.video_url or "")
+
+    title = _esc(ad.title or f"YouTube Ad {index + 1}")
+    start_date_html = ""
+    if ad.start_date:
+        start_date_html = f' &middot; Running since {_esc(ad.start_date)}'
+
+    if vid_id:
+        return f"""<div style="background:white;border:1px solid var(--border);border-radius:14px;overflow:hidden">
+    <div style="position:relative;padding-bottom:56.25%;height:0">
+      <iframe src="https://www.youtube.com/embed/{vid_id}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>
+    </div>
+    <div style="padding:12px 16px">
+      <div style="font-weight:600;font-size:.85rem">{title}</div>
+      <div style="font-size:.75rem;color:var(--muted)">YouTube{start_date_html}</div>
+    </div>
+  </div>"""
+
+    # Fallback: link card if no embeddable video ID
+    link_url = _esc(ad.ad_page_url or "")
+    return f"""<div style="background:white;border:1px solid var(--border);border-radius:14px;overflow:hidden;padding:20px;display:flex;align-items:center;gap:16px">
+    <div style="width:48px;height:48px;background:#FF0000;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:.85rem">{title}</div>
+      <div style="font-size:.75rem;color:var(--muted)">Google Ads Transparency{start_date_html}</div>
+    </div>
+    {"<a href=" + chr(34) + link_url + chr(34) + ' target="_blank" style="font-size:.78rem;color:var(--teal);font-weight:600;white-space:nowrap">View Ad &rarr;</a>' if link_url else ""}
+  </div>"""
+
+
+def _build_ad_discovery_video(company: str, report: DomainAdReport) -> str:
+    """Build Ad Discovery section with MP4 downloads from Meta & iSpot,
+    and embedded YouTube videos for YouTube/Google ads.
+    """
+    meta_count = len(report.meta_ads.ads)
+    ispot_count = len(report.ispot_ads.ads)
+    yt_count = len(report.youtube_ads.ads)
+    total_ads = meta_count + ispot_count + yt_count
+
+    if total_ads == 0:
+        return ""
+
+    stats_parts = []
+    if meta_count:
+        stats_parts.append(f"{meta_count} Meta")
+    if ispot_count:
+        stats_parts.append(f"{ispot_count} CTV/Linear")
+    if yt_count:
+        stats_parts.append(f"{yt_count} YouTube")
+    stats_line = " + ".join(stats_parts) if stats_parts else f"{total_ads} total"
+
+    sections_html = []
+
+    # ── Meta: first ad with video_url as MP4 download ──
+    meta_video = next((a for a in report.meta_ads.ads if a.video_url), None)
+    if meta_video:
+        sections_html.append(f"""<div>
+    <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--pink);font-weight:700;margin-bottom:10px">Meta Ad Library &middot; {meta_count} ad{"s" if meta_count != 1 else ""} found</div>
+    {_build_video_card(meta_video, "Meta Ad Library")}
+  </div>""")
+
+    # ── iSpot: first ad with video_url as MP4 download ──
+    ispot_video = next((a for a in report.ispot_ads.ads if a.video_url), None)
+    if ispot_video:
+        sections_html.append(f"""<div>
+    <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--teal);font-weight:700;margin-bottom:10px">iSpot (CTV / Linear TV) &middot; {ispot_count} ad{"s" if ispot_count != 1 else ""} found</div>
+    {_build_video_card(ispot_video, "iSpot")}
+  </div>""")
+
+    # ── YouTube / Google: show first ad as MP4 if available, then embed remaining as cards ──
+    yt_ads = report.youtube_ads.ads[:3]
+    if yt_ads:
+        yt_parts = []
+        # First ad with video_url gets an MP4 player
+        first_yt = yt_ads[0] if yt_ads else None
+        remaining_yt = yt_ads[1:] if len(yt_ads) > 1 else []
+
+        if first_yt and first_yt.video_url:
+            yt_parts.append(_build_video_card(first_yt, "YouTube"))
+            # Remaining ads as embed/link cards
+            if remaining_yt:
+                yt_cards = "\n    ".join(_build_youtube_embed(ad, i + 1) for i, ad in enumerate(remaining_yt))
+                yt_parts.append(f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">{yt_cards}</div>')
+        else:
+            # No video URL — show all as embed/link cards
+            yt_cards = "\n    ".join(_build_youtube_embed(ad, i) for i, ad in enumerate(yt_ads))
+            yt_parts.append(f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">{yt_cards}</div>')
+
+        sections_html.append(f"""<div>
+    <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:#FF0000;font-weight:700;margin-bottom:10px">YouTube / Google Ads &middot; {yt_count} ad{"s" if yt_count != 1 else ""} found</div>
+    {"".join(yt_parts)}
+  </div>""")
+
+    if not sections_html:
+        return ""
+
+    return f"""<section style="padding:48px 0">
+  <div style="text-align:center;margin-bottom:32px">
+    <div style="font-size:.75rem;text-transform:uppercase;letter-spacing:.12em;color:var(--teal);font-weight:700;margin-bottom:8px">Ad Discovery</div>
+    <h2 style="font-size:1.8rem;margin-bottom:8px">{company}'s Current Advertising</h2>
+    <p style="color:var(--muted);font-size:.9rem">We found <strong>{stats_line}</strong> active ads across platforms.</p>
+  </div>
+  <div style="max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:32px">
+    {"".join(sections_html)}
   </div>
 </section>"""
 
@@ -2929,30 +3012,84 @@ def _build_audio_demos(company: str, report: DomainAdReport) -> str:
 </section>"""
 
 
-def _build_creative_showcase() -> str:
+def _build_creative_showcase(report: DomainAdReport) -> str:
     """Build the Upscale Creative Showcase section — a grid of Vimeo video cards
     replicating the layout from upscale.ai/solutions#videos.
 
+    Videos are sorted by relevance to the brand's industry/vertical.
     Shows 3 cards initially with a "View all creatives" button to expand.
     Category filter pills also expand to show all matching videos.
     """
 
     # ── Video catalog ──
     VIDEOS = [
-        {"id": "1171126946", "brand": "Book of the Month", "cats": ["Subscription"]},
-        {"id": "1171126927", "brand": "Jones Road Beauty", "cats": ["Beauty", "Subscription"]},
-        {"id": "1171126903", "brand": "Laundry Sauce", "cats": ["Home", "CPG", "Subscription"]},
-        {"id": "1171126878", "brand": "Rally", "cats": ["Fitness", "Health"]},
-        {"id": "1171126858", "brand": "State Bags", "cats": ["Travel"]},
         {"id": "1171126835", "brand": "Biom", "cats": ["Home", "CPG", "Subscription"]},
+        {"id": "1171126946", "brand": "Book of the Month", "cats": ["Subscription"]},
+        {"id": "1073355024", "h": "20adb5f2eb", "brand": "Branch", "cats": ["Home", "Furniture"]},
         {"id": "1171126818", "brand": "Canopy", "cats": ["Home", "Health", "Subscription"]},
+        {"id": "1171126927", "brand": "Jones Road Beauty", "cats": ["Beauty", "Subscription"]},
+        {"id": "1073355127", "brand": "Lalo", "cats": ["Home", "Baby"]},
+        {"id": "1171126903", "brand": "Laundry Sauce", "cats": ["Home", "CPG", "Subscription"]},
         {"id": "1171126796", "brand": "Momofuku", "cats": ["Food", "Subscription"]},
         {"id": "1171126767", "brand": "Mood", "cats": ["Health", "Subscription"]},
-        {"id": "1171126742", "brand": "Stately Men", "cats": ["Mens Apparel"]},
-        {"id": "1073355127", "brand": "Lalo", "cats": ["Home", "Baby"]},
-        {"id": "1073355024", "h": "20adb5f2eb", "brand": "Branch", "cats": ["Home", "Furniture"]},
         {"id": "1073354880", "h": "931ddff1fc", "brand": "Newton", "cats": ["Home", "Baby"]},
+        {"id": "1171126878", "brand": "Rally", "cats": ["Fitness", "Health"]},
+        {"id": "1171126858", "brand": "State Bags", "cats": ["Travel"]},
+        {"id": "1171126742", "brand": "Stately Men", "cats": ["Mens Apparel"]},
     ]
+
+    # ── Sort by relevance to the brand ──
+    # Build keyword set from industry, description, and product categories
+    e = report.enrichment
+    relevance_keywords: set[str] = set()
+    if e:
+        for field in [e.industry, e.description, e.primary_country]:
+            if field:
+                relevance_keywords.update(w.lower() for w in field.split() if len(w) > 2)
+        if e.product_categories:
+            for cat in e.product_categories:
+                relevance_keywords.update(w.lower() for w in cat.split() if len(w) > 2)
+
+    # Industry-to-showcase-cat mapping for broader matching
+    INDUSTRY_MAP: dict[str, list[str]] = {
+        "beauty": ["Beauty", "CPG", "Subscription"],
+        "cosmetics": ["Beauty", "CPG"],
+        "skincare": ["Beauty", "Health", "CPG"],
+        "health": ["Health", "CPG", "Subscription"],
+        "wellness": ["Health", "Fitness", "Subscription"],
+        "supplement": ["Health", "CPG", "Subscription"],
+        "fitness": ["Fitness", "Health"],
+        "food": ["Food", "CPG", "Subscription"],
+        "beverage": ["Food", "CPG"],
+        "home": ["Home", "Furniture"],
+        "furniture": ["Home", "Furniture"],
+        "baby": ["Baby", "Home"],
+        "kids": ["Baby", "Home"],
+        "children": ["Baby", "Home"],
+        "fashion": ["Mens Apparel", "Travel"],
+        "apparel": ["Mens Apparel"],
+        "clothing": ["Mens Apparel"],
+        "accessories": ["Travel", "Mens Apparel"],
+        "bags": ["Travel"],
+        "luggage": ["Travel"],
+        "subscription": ["Subscription"],
+        "pet": ["CPG", "Health"],
+        "sports": ["Fitness", "Health"],
+    }
+
+    # Collect matching showcase categories from the brand's keywords
+    matched_cats: set[str] = set()
+    for kw in relevance_keywords:
+        for industry_kw, cats in INDUSTRY_MAP.items():
+            if industry_kw in kw or kw in industry_kw:
+                matched_cats.update(cats)
+
+    def _relevance_score(video: dict) -> int:
+        """Higher score = more relevant. Count overlapping categories."""
+        return sum(1 for c in video["cats"] if c in matched_cats)
+
+    # Sort: highest relevance first, then alphabetical by brand as tiebreaker
+    VIDEOS.sort(key=lambda v: (-_relevance_score(v), v["brand"]))
 
     INITIAL_VISIBLE = 3
 
@@ -4503,5 +4640,5 @@ def _build_next_steps(company, budget) -> str:
       <div style="font-size:.68rem;color:rgba(255,255,255,.45);margin-top:6px">Campaigns live. Continuous testing &amp; weekly reviews.</div>
     </div>
   </div>
-  <p style="margin-top:24px;font-size:.85rem;color:rgba(255,255,255,.55)">Minimum: $100/day ad spend ({_fmt_money(budget['m1'])} recommended) &middot; $0 management fee &middot; Creative included</p>
+  <p style="margin-top:24px;font-size:.85rem;color:rgba(255,255,255,.55)">Minimum: $100/day ad spend ({_fmt_money(budget['m1'])} recommended) &middot; $0 monthly management fee &middot; Creative included</p>
 </div>"""
