@@ -448,6 +448,47 @@ class HiringIntel(BaseModel):
     error: Optional[str] = None
 
 
+class PitchConfig(BaseModel):
+    """Overridable configuration for pitch report generation.
+
+    Any field set to a non-None value overrides the auto-computed value.
+    """
+    # Budget overrides (monthly amounts)
+    budget_m1: Optional[float] = None
+    budget_m2: Optional[float] = None
+    budget_m3: Optional[float] = None
+
+    # Strategy override
+    strategy_tier: Optional[str] = None  # "youtube_only", "ctv_led", "full_funnel"
+
+    # ROI projection overrides
+    aov: Optional[float] = None  # Average order value
+    blended_cpm: Optional[float] = None
+    cost_per_visit: Optional[float] = None
+    cpa_pct: Optional[float] = None  # CPA as % of AOV (e.g. 0.72)
+    ltv_multiplier: Optional[float] = None
+    roas_floor: Optional[float] = None  # Min ROAS clamp (default 2.2)
+    roas_cap: Optional[float] = None  # Max ROAS clamp (default 8.5)
+
+    # Campaign timing
+    campaign_start_date: Optional[str] = None  # ISO date string
+
+    # Content overrides
+    company_name: Optional[str] = None
+    industry: Optional[str] = None
+    logo_url: Optional[str] = None
+    tagline: Optional[str] = None  # Custom hero subtitle
+
+    # Section toggles (True = include, False = exclude)
+    include_ctv_impact: Optional[bool] = None
+    include_youtube_impact: Optional[bool] = None
+    include_creative_showcase: Optional[bool] = None
+    include_audio_demos: Optional[bool] = None
+    include_competitive: Optional[bool] = None
+    include_ad_discovery: Optional[bool] = None
+    include_case_studies: Optional[bool] = None
+
+
 class DomainAdReport(BaseModel):
     domain: str
     company_name: Optional[str] = None
