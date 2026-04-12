@@ -116,6 +116,16 @@ async def enrich_domain(domain: str) -> CompanyEnrichment | None:
                 t.get("name") for t in data.get("technologies", [])
                 if t.get("name")
             ]
+            technologies_full = [
+                {
+                    "name": t.get("name"),
+                    "categories": t.get("categories", []),
+                    "description": t.get("description"),
+                    "installed_at": t.get("installed_at"),
+                }
+                for t in data.get("technologies", [])
+                if t.get("name")
+            ]
 
             # --- Features ---
             features = data.get("features", [])
@@ -156,6 +166,7 @@ async def enrich_domain(domain: str) -> CompanyEnrichment | None:
                 og_image_url=data.get("og_image"),
                 social_profiles=social_profiles,
                 technologies=technologies,
+                technologies_full=technologies_full,
                 features=features,
                 phone=phone,
                 emails=emails,
