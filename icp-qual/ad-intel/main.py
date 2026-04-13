@@ -267,6 +267,7 @@ def main():
                     internal_url=internal_url,
                     pitch_url=pitch_url,
                     call_tracker=call_tracker,
+                    pitch_failed_sections=result.pitch_failed_sections if result.pitch_failed_sections else None,
                 )
                 slack_url = asyncio.run(post_to_slack(slack_main, slack_threads))
                 if slack_url:

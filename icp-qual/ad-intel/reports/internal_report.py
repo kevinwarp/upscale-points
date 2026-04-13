@@ -74,6 +74,7 @@ def _score_bar_color(score: float) -> str:
 def generate_internal_report(
     report: DomainAdReport,
     fit: UpscaleFitResult,
+    pitch_failed_sections: list[dict] | None = None,
 ) -> str:
     """Generate the internal ICP HTML report."""
     e = report.enrichment
@@ -127,6 +128,24 @@ def generate_internal_report(
     news_section = _safe("news", _build_news_section, report)
     podcasts_section = _safe("podcasts", _build_podcasts_section, report)
     case_studies_section = _safe("case_studies", _build_case_studies_section, report)
+
+    # Pitch section failure banner
+    pitch_failure_banner = ""
+    if pitch_failed_sections:
+        rows = "".join(
+            f'<tr><td style="font-family:monospace;color:#B42318">{_esc(s["section"])}</td>'
+            f'<td style="color:#667085">{_esc(s["error"])}</td></tr>'
+            for s in pitch_failed_sections
+        )
+        pitch_failure_banner = f"""
+        <div style="background:#FEF3F2;border:1px solid #FDA29B;border-radius:8px;padding:16px;margin:16px 0;">
+          <strong style="color:#B42318">⚠ {len(pitch_failed_sections)} Pitch Section(s) Failed</strong>
+          <span style="color:#667085;font-size:13px;margin-left:8px">— excluded from client-facing pitch</span>
+          <table style="margin-top:8px;font-size:13px;border-collapse:collapse;width:100%">
+            <tr style="border-bottom:1px solid #FECDCA"><th style="text-align:left;padding:4px 8px">Section</th><th style="text-align:left;padding:4px 8px">Error</th></tr>
+            {rows}
+          </table>
+        </div>"""
 
     generated = datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
 
@@ -780,6 +799,7 @@ section h2 {{
   </div>
   {f'<p class="brand-description">{description}</p>' if description else ''}
 
+  {pitch_failure_banner}
   {competitor_alert}
 
   {kpi_cards}
@@ -919,8 +939,20 @@ section h2 {{
             <option value="full_funnel">Full Funnel (CTV + YouTube)</option>
           </select>
         </div>
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Launch Date</label>
+          <input id="pc-launch-date" type="date" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem" />
+        </div>
       </div>
-      <div style="display:flex;align-items:center;gap:12px">
+
+      <!-- Showcase Videos -->
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+        <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Showcase Videos (YouTube/Vimeo URLs, one per line)</label>
+        <textarea id="pc-videos" rows="4" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:monospace;resize:vertical" placeholder="https://youtu.be/abc123&#10;https://vimeo.com/123456"></textarea>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:4px">Paste YouTube or Vimeo URLs. Tags will be auto-extracted from video titles for the Creative Showcase section.</div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-top:16px">
         <button id="pc-regen-btn" onclick="regenPitch()" style="background:var(--pink);color:white;border:none;padding:10px 28px;border-radius:8px;font-weight:700;font-size:.9rem;cursor:pointer;transition:opacity .2s">&#x1f504; Regenerate Pitch</button>
         <span id="pc-status" style="font-size:.82rem;color:var(--muted)"></span>
       </div>
@@ -962,8 +994,12 @@ section h2 {{
       if (v) config.total_creatives = parseInt(v);
       v = document.getElementById('pc-strategy').value;
       if (v) config.strategy_tier = v;
+      v = document.getElementById('pc-launch-date').value;
+      if (v) config.campaign_start_date = v;
+      v = document.getElementById('pc-videos').value.trim();
+      if (v) config.showcase_video_urls = v.split('\\n').map(function(u) {{ return u.trim(); }}).filter(function(u) {{ return u.length > 0; }});
 
-      var resp = await fetch('/icp/api/pitch/regenerate', {{
+      var resp = await fetch('http://localhost:8000/api/pitch/regenerate', {{
         method: 'POST',
         headers: {{'Content-Type': 'application/json'}},
         body: JSON.stringify({{domain: '{domain}', config: config}})
