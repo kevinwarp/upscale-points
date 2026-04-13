@@ -1,0 +1,8 @@
+
+
+# HubSpot config file
+hubspot.config.yml
+.vercel
+
+# Cached reports
+data/

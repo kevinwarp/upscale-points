@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Creative Showcase Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://player.vimeo.com/api/player.js"></script>
+<style>
+:root {
+  --pink: #831F80; --pink-light: #F6EBF6; --navy: #021A20; --teal: #0A6D86;
+  --white: #FFFFFF; --border: #D7D7D7; --muted: #838383; --bg: #F6F6F6;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Inter", sans-serif; background: white; color: var(--navy); -webkit-font-smoothing: antialiased; }
+.showcase-section { padding: 80px 0; background: var(--bg); }
+.showcase-header { text-align: center; margin-bottom: 40px; }
+.showcase-header .kicker { font-size: .75rem; text-transform: uppercase; letter-spacing: .12em; color: var(--teal); font-weight: 700; margin-bottom: 8px; }
+.showcase-header h2 { font-size: 2.2rem; font-weight: 800; letter-spacing: -.02em; margin-bottom: 12px; }
+.showcase-header p { color: var(--muted); max-width: 600px; margin: 0 auto; font-size: .95rem; }
+.showcase-filters { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 32px; padding: 0 24px; }
+.showcase-filter { padding: 7px 18px; border-radius: 100px; border: 1px solid var(--border); background: white; font-size: .8rem; font-weight: 600; color: var(--navy); cursor: pointer; transition: all .15s; font-family: inherit; }
+.showcase-filter:hover { border-color: var(--pink); color: var(--pink); }
+.showcase-filter.active { background: var(--navy); color: white; border-color: var(--navy); }
+.showcase-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1080px; margin: 0 auto; padding: 0 40px; }
+.showcase-card { position: relative; border-radius: 14px; overflow: hidden; cursor: pointer; background: #000; aspect-ratio: 16/9; }
+.showcase-card.hidden { display: none; }
+.showcase-card.showcase-collapsed { display: none; }
+.showcase-thumb { width: 100%; height: 100%; object-fit: cover; transition: transform .3s, opacity .3s; display: block; }
+.showcase-card:hover .showcase-thumb { transform: scale(1.05); opacity: .85; }
+.showcase-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.showcase-play { width: 56px; height: 56px; background: rgba(255,255,255,.92); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0,0,0,.25); transition: transform .2s; }
+.showcase-card:hover .showcase-play { transform: scale(1.1); }
+.showcase-play svg { width: 22px; height: 22px; margin-left: 3px; fill: var(--navy); }
+.showcase-tag { position: absolute; top: 12px; left: 12px; padding: 4px 12px; background: rgba(131,31,128,.88); color: white; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; backdrop-filter: blur(4px); }
+.showcase-brand { position: absolute; bottom: 12px; left: 12px; color: white; font-size: .8rem; font-weight: 700; text-shadow: 0 1px 6px rgba(0,0,0,.5); }
+.showcase-modal { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.88); display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+.showcase-modal.open { display: flex; }
+.showcase-modal-inner { width: 90%; max-width: 960px; aspect-ratio: 16/9; position: relative; border-radius: 14px; overflow: hidden; background: #000; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.showcase-modal-inner iframe { width: 100%; height: 100%; border: 0; }
+.showcase-modal-close { position: absolute; top: -48px; right: 0; width: 40px; height: 40px; background: rgba(255,255,255,.15); border: none; border-radius: 50%; color: white; font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s; }
+.showcase-modal-close:hover { background: rgba(255,255,255,.3); }
+@media (max-width: 900px) { .showcase-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 0 20px; } }
+@media (max-width: 640px) { .showcase-grid { grid-template-columns: 1fr; } .showcase-header h2 { font-size: 1.6rem; } }
+</style>
+</head>
+<body>
+<section class="showcase-section">
+  <div class="showcase-header">
+    <div class="kicker">Creative Showcase</div>
+    <h2>Upscale Creative Showcase</h2>
+    <p>TV creatives developed on Upscale Studio &mdash; see what we can build for your brand.</p>
+  </div>
+  <div class="showcase-filters">
+    <button class="showcase-filter active" data-cat="all" onclick="filterShowcase('all',this)">View all</button><button class="showcase-filter" data-cat="Subscription" onclick="filterShowcase('Subscription',this)">Subscription</button><button class="showcase-filter" data-cat="Beauty" onclick="filterShowcase('Beauty',this)">Beauty</button><button class="showcase-filter" data-cat="Home" onclick="filterShowcase('Home',this)">Home</button><button class="showcase-filter" data-cat="CPG" onclick="filterShowcase('CPG',this)">CPG</button><button class="showcase-filter" data-cat="Fitness" onclick="filterShowcase('Fitness',this)">Fitness</button><button class="showcase-filter" data-cat="Health" onclick="filterShowcase('Health',this)">Health</button><button class="showcase-filter" data-cat="Travel" onclick="filterShowcase('Travel',this)">Travel</button><button class="showcase-filter" data-cat="Food" onclick="filterShowcase('Food',this)">Food</button><button class="showcase-filter" data-cat="Mens Apparel" onclick="filterShowcase('Mens Apparel',this)">Mens Apparel</button><button class="showcase-filter" data-cat="Baby" onclick="filterShowcase('Baby',this)">Baby</button><button class="showcase-filter" data-cat="Furniture" onclick="filterShowcase('Furniture',this)">Furniture</button>
+  </div>
+  <div class="showcase-grid">
+    <div class="showcase-card" data-cats="Subscription" data-embed="https://player.vimeo.com/video/1171126946?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126946.jpg" alt="Book of the Month" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Subscription</div>
+  <div class="showcase-brand">Book of the Month</div>
+</div><div class="showcase-card" data-cats="Beauty,Subscription" data-embed="https://player.vimeo.com/video/1171126927?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126927.jpg" alt="Jones Road Beauty" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Beauty</div>
+  <div class="showcase-brand">Jones Road Beauty</div>
+</div><div class="showcase-card" data-cats="Home,CPG,Subscription" data-embed="https://player.vimeo.com/video/1171126903?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126903.jpg" alt="Laundry Sauce" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Home</div>
+  <div class="showcase-brand">Laundry Sauce</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Fitness,Health" data-embed="https://player.vimeo.com/video/1171126878?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126878.jpg" alt="Rally" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Fitness</div>
+  <div class="showcase-brand">Rally</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Travel" data-embed="https://player.vimeo.com/video/1171126858?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126858.jpg" alt="State Bags" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Travel</div>
+  <div class="showcase-brand">State Bags</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Home,CPG,Subscription" data-embed="https://player.vimeo.com/video/1171126835?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126835.jpg" alt="Biom" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Home</div>
+  <div class="showcase-brand">Biom</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Home,Health,Subscription" data-embed="https://player.vimeo.com/video/1171126818?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126818.jpg" alt="Canopy" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Home</div>
+  <div class="showcase-brand">Canopy</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Food,Subscription" data-embed="https://player.vimeo.com/video/1171126796?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126796.jpg" alt="Momofuku" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Food</div>
+  <div class="showcase-brand">Momofuku</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Health,Subscription" data-embed="https://player.vimeo.com/video/1171126767?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126767.jpg" alt="Mood" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Health</div>
+  <div class="showcase-brand">Mood</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Mens Apparel" data-embed="https://player.vimeo.com/video/1171126742?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1171126742.jpg" alt="Stately Men" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Mens Apparel</div>
+  <div class="showcase-brand">Stately Men</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Home,Baby" data-embed="https://player.vimeo.com/video/1073355127?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1073355127.jpg" alt="Lalo" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Home</div>
+  <div class="showcase-brand">Lalo</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Home,Furniture" data-embed="https://player.vimeo.com/video/1073355024?h=20adb5f2eb&amp;badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1073355024.jpg" alt="Branch" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Home</div>
+  <div class="showcase-brand">Branch</div>
+</div><div class="showcase-card showcase-collapsed" data-cats="Home,Baby" data-embed="https://player.vimeo.com/video/1073354880?h=931ddff1fc&amp;badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1" onclick="openShowcase(this)">
+  <img class="showcase-thumb" src="https://vumbnail.com/1073354880.jpg" alt="Newton" loading="lazy">
+  <div class="showcase-overlay">
+    <div class="showcase-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="showcase-tag">Home</div>
+  <div class="showcase-brand">Newton</div>
+</div>
+  </div>
+  <div style="text-align:center;margin-top:32px">
+    <button id="showcase-expand" onclick="expandShowcase()" style="display:inline-flex;align-items:center;gap:8px;padding:12px 32px;background:var(--navy);color:white;border:none;border-radius:10px;font-size:.9rem;font-weight:600;cursor:pointer;font-family:inherit;transition:background .15s">
+      View all 13 creatives
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
+</section>
+
+<div class="showcase-modal" id="showcase-modal" onclick="if(event.target===this)closeShowcase()">
+  <div style="position:relative">
+    <button class="showcase-modal-close" onclick="closeShowcase()">&times;</button>
+    <div class="showcase-modal-inner" id="showcase-player"></div>
+  </div>
+</div>
+<script>
+var showcaseExpanded = false;
+function openShowcase(card) {
+  var modal = document.getElementById('showcase-modal');
+  var inner = document.getElementById('showcase-player');
+  var url = card.getAttribute('data-embed');
+  inner.innerHTML = '<iframe src="' + url + '" allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media" allowfullscreen style="width:100%;height:100%;border:0"></iframe>';
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeShowcase() {
+  var modal = document.getElementById('showcase-modal');
+  var inner = document.getElementById('showcase-player');
+  inner.innerHTML = '';
+  modal.classList.remove('open');
+  document.body.style.overflow = '';
+}
+function expandShowcase() {
+  showcaseExpanded = true;
+  document.querySelectorAll('.showcase-collapsed').forEach(function(c) {
+    c.classList.remove('showcase-collapsed');
+  });
+  var btn = document.getElementById('showcase-expand');
+  if (btn) btn.style.display = 'none';
+}
+function filterShowcase(cat, btn) {
+  // Clicking a filter always expands the grid
+  if (!showcaseExpanded) expandShowcase();
+  var cards = document.querySelectorAll('.showcase-card');
+  cards.forEach(function(c) {
+    if (cat === 'all') { c.classList.remove('hidden'); }
+    else {
+      var cats = c.getAttribute('data-cats').split(',');
+      c.classList.toggle('hidden', cats.indexOf(cat) === -1);
+    }
+  });
+  document.querySelectorAll('.showcase-filter').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeShowcase(); });
+</script>
+</body>
+</html>
