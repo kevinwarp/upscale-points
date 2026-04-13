@@ -107,6 +107,10 @@ async def scrape_youtube_ads(
             result.found = len(result.ads) > 0
             logger.info(f"YouTube: found {len(result.ads)} ads")
 
+            # Enrich first ad with video URL by visiting its detail page
+            if result.ads and result.ads[0].ad_page_url:
+                await _enrich_first_ad_video(page, result.ads[0])
+
     except Exception as e:
         logger.error(f"YouTube Transparency scraper error: {e}")
         result.error = str(e)
@@ -167,3 +171,58 @@ async def _apply_date_filter(page) -> None:
         logger.warning("YouTube: 'Last 30 days' not found in date options")
     except Exception as e:
         logger.warning(f"YouTube: could not apply date filter: {e}")
+
+
+async def _enrich_first_ad_video(page, ad: Ad) -> None:
+    """Navigate to a YouTube ad's detail page on Ads Transparency Center
+    and extract the video URL from the embedded player."""
+    try:
+        logger.info(f"YouTube: fetching video from {ad.ad_page_url}")
+        await page.goto(ad.ad_page_url, wait_until="domcontentloaded")
+        await page.wait_for_timeout(3000)
+
+        # Try to find video element on the detail page
+        video_data = await page.evaluate("""() => {
+  // Direct <video> tag
+  const video = document.querySelector('video');
+  if (video) {
+    const src = video.src || (video.querySelector('source') || {}).src || '';
+    const poster = video.poster || '';
+    return { src, poster, type: 'video' };
+  }
+  // YouTube iframe embed
+  const iframe = document.querySelector('iframe[src*="youtube.com"], iframe[src*="youtu.be"]');
+  if (iframe) return { src: iframe.src, poster: '', type: 'youtube_iframe' };
+  // Any other video iframe
+  const anyIframe = document.querySelector('iframe[src*="video"], iframe[src*="player"]');
+  if (anyIframe) return { src: anyIframe.src, poster: '', type: 'iframe' };
+  return null;
+}""")
+
+        if video_data:
+            src = video_data.get("src", "")
+            poster = video_data.get("poster", "")
+            vtype = video_data.get("type", "")
+
+            if vtype == "youtube_iframe" and src:
+                # Extract YouTube video ID from iframe src for embedding
+                import re
+                m = re.search(r'youtube\.com/embed/([a-zA-Z0-9_-]{11})', src)
+                if m:
+                    vid_id = m.group(1)
+                    ad.video_url = f"https://www.youtube.com/watch?v={vid_id}"
+                    ad.thumbnail_url = f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg"
+                    logger.info(f"YouTube: captured YouTube embed video ID: {vid_id}")
+                    return
+
+            if src and src.startswith("http"):
+                ad.video_url = src
+                logger.info(f"YouTube: captured video URL ({len(src)} chars)")
+            if poster and poster.startswith("http"):
+                ad.thumbnail_url = poster
+                logger.info(f"YouTube: captured thumbnail URL")
+        else:
+            logger.info("YouTube: no video element found on detail page")
+
+    except Exception as e:
+        logger.warning(f"YouTube: could not enrich first ad video: {e}")

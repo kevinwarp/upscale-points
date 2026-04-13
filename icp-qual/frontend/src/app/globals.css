@@ -1,0 +1,193 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand primaries */
+  --pink: #831F80;
+  --pink-light: #F6EBF6;
+  --navy: #021A20;
+  --teal: #0A6D86;
+  --white: #FFFFFF;
+
+  /* Contrast / accent */
+  --aqua: #00F0FF;
+  --hot-pink: #FF3AF9;
+  --dark-teal: #0B3D49;
+  --pink-mid: #A42EA1;
+  --teal-light: #5ABBD4;
+
+  /* Backgrounds */
+  --bg-grey: #F6F6F6;
+  --grey-light: #F5F3F5;
+
+  /* Neutrals */
+  --border: #D7D7D7;
+  --muted: #838383;
+  --dark-deep: #03252D;
+
+  /* System / data */
+  --success: #027A48;
+  --success-light: #ECFDF3;
+  --danger: #B42318;
+  --danger-light: #FEF3F2;
+
+  --background: #ffffff;
+  --foreground: #021A20;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-pink: var(--pink);
+  --color-pink-light: var(--pink-light);
+  --color-pink-mid: var(--pink-mid);
+  --color-navy: var(--navy);
+  --color-teal: var(--teal);
+  --color-teal-light: var(--teal-light);
+  --color-aqua: var(--aqua);
+  --color-dark-teal: var(--dark-teal);
+  --color-bg-grey: var(--bg-grey);
+  --color-grey-light: var(--grey-light);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-success: var(--success);
+  --color-success-light: var(--success-light);
+  --color-danger: var(--danger);
+  --color-danger-light: var(--danger-light);
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Card base */
+.card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+  transition: box-shadow 0.2s ease;
+}
+.card:hover {
+  box-shadow: 0 4px 16px rgba(131, 31, 128, 0.1);
+}
+
+/* Button variants */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 8px;
+  padding: 0.5rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  text-decoration: none;
+}
+.btn-pink {
+  background: var(--pink);
+  color: white;
+}
+.btn-pink:hover {
+  background: var(--pink-mid);
+}
+.btn-teal {
+  background: var(--teal);
+  color: white;
+}
+.btn-teal:hover {
+  background: var(--teal-light);
+}
+.btn-navy {
+  background: var(--navy);
+  color: white;
+}
+.btn-navy:hover {
+  background: var(--dark-teal);
+}
+.btn-outline {
+  background: transparent;
+  color: var(--navy);
+  border: 1px solid var(--border);
+}
+.btn-outline:hover {
+  background: var(--bg-grey);
+}
+
+/* Tag badges */
+.tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+}
+.tag-teal {
+  background: var(--teal);
+  color: white;
+}
+.tag-pink {
+  background: var(--pink-light);
+  color: var(--pink);
+}
+.tag-success {
+  background: var(--success-light);
+  color: var(--success);
+}
+.tag-danger {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+/* Input styling */
+input[type="text"],
+input[type="url"],
+input[type="search"] {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: var(--navy);
+  background: white;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(10, 109, 134, 0.1);
+}
+
+/* Pulse animation for pipeline status */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.pulse-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pink);
+  display: inline-block;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Skeleton loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-grey) 25%, var(--grey-light) 50%, var(--bg-grey) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}

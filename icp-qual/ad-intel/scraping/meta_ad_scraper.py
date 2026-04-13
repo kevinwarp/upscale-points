@@ -122,7 +122,19 @@ async def scrape_meta_ads(
 }"""
             ads_data = await page.evaluate(js_code)
 
-            for ad_data in ads_data[:30]:
+            # Extract video URLs from embedded <video> elements on the page
+            video_urls = await page.evaluate("""() => {
+  const videos = document.querySelectorAll('video');
+  const urls = [];
+  for (const v of videos) {
+    const src = v.src || v.querySelector('source')?.src || '';
+    if (src && src.startsWith('http')) urls.push(src);
+  }
+  return urls;
+}""")
+            logger.info(f"Meta: found {len(video_urls)} video elements on page")
+
+            for idx, ad_data in enumerate(ads_data[:30]):
                 library_id = ad_data.get("library_id")
                 advertiser = ad_data.get("advertiser")
                 ad_text = ad_data.get("ad_text")
@@ -135,6 +147,9 @@ async def scrape_meta_ads(
                     else None
                 )
 
+                # Match video URL by index (video elements appear in same order as ads)
+                video_url = video_urls[idx] if idx < len(video_urls) else None
+
                 if title or library_id:
                     result.ads.append(
                         Ad(
@@ -142,11 +157,12 @@ async def scrape_meta_ads(
                             ad_page_url=ad_page_url,
                             start_date=start_date,
                             format="video",
+                            video_url=video_url,
                         )
                     )
 
             result.found = len(result.ads) > 0
-            logger.info(f"Meta: found {len(result.ads)} ads")
+            logger.info(f"Meta: found {len(result.ads)} ads ({sum(1 for a in result.ads if a.video_url)} with video URLs)")
 
     except Exception as e:
         logger.error(f"Meta Ad Library scraper error: {e}")
