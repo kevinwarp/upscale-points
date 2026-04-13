@@ -40,6 +40,90 @@ from utils.status_reporter import StatusReporter
 logger = logging.getLogger(__name__)
 
 RATE_LIMIT_SECONDS = 10
+HEARTBEAT_INTERVAL = 30  # seconds between progress updates
+
+
+class TrackedStep:
+    """Async context manager that emits heartbeat updates every 30s and catches errors.
+
+    Usage:
+        async with TrackedStep(status, "storeleads", "Enriching...", progress=5):
+            result = await some_call()
+    On success: emits step_complete. On error: emits step_error.
+    While running: emits step_progress every 30s.
+    """
+
+    def __init__(
+        self,
+        status: StatusReporter,
+        step: str,
+        label: str,
+        progress: int = 0,
+        timeout: float | None = None,
+    ):
+        self.status = status
+        self.step = step
+        self.label = label
+        self.progress = progress
+        self.timeout = timeout
+        self._heartbeat_task: asyncio.Task | None = None
+        self._elapsed = 0
+
+    async def _heartbeat_loop(self):
+        """Emit progress updates every HEARTBEAT_INTERVAL seconds."""
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                self._elapsed += HEARTBEAT_INTERVAL
+                mins = self._elapsed // 60
+                secs = self._elapsed % 60
+                time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+                self.status.step_progress(
+                    self.step,
+                    f"{self.label} ({time_str} elapsed...)",
+                    progress=self.progress,
+                )
+        except asyncio.CancelledError:
+            pass
+
+    async def __aenter__(self):
+        self.status.step_start(self.step, self.label, progress=self.progress)
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+        if exc_type is not None:
+            self.status.step_error(
+                self.step,
+                f"{self.label} — failed",
+                error=str(exc_val),
+                progress=self.progress,
+            )
+            logger.warning(f"Step {self.step} failed: {exc_val}")
+            return True  # suppress the exception
+        return False
+
+
+async def _heartbeat_monitor(status: StatusReporter):
+    """Background task that emits progress updates for all running steps every 30s."""
+    try:
+        while True:
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+            # Emit heartbeat for every step that has an active timer (started but not completed)
+            for step, start_t in list(status._step_timers.items()):
+                elapsed = time.monotonic() - start_t
+                mins = int(elapsed) // 60
+                secs = int(elapsed) % 60
+                time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+                status.step_progress(step, f"Still running... ({time_str} elapsed)")
+    except asyncio.CancelledError:
+        pass
 
 
 async def run_pipeline(
@@ -65,6 +149,9 @@ async def run_pipeline(
     if status is None:
         status = StatusReporter(domain)
     status.pipeline_start()
+
+    # Start heartbeat monitor — emits progress for all running steps every 30s
+    heartbeat_task = asyncio.create_task(_heartbeat_monitor(status))
 
     # Step 1: Store Leads enrichment
     status.step_start("storeleads", f"Enriching {domain} via Store Leads...", progress=5)
@@ -559,6 +646,13 @@ async def run_pipeline(
         logger.error(f"Voiceover task failed: {e}")
         tracker.record("Voiceover Generation", "voiceover", status=CallStatus.ERROR, error=str(e))
         status.step_complete("voiceover", f"Voiceover: error — {e}", progress=95)
+
+    # Stop heartbeat monitor
+    heartbeat_task.cancel()
+    try:
+        await heartbeat_task
+    except asyncio.CancelledError:
+        pass
 
     # Finalize
     report.pipeline_duration_seconds = round(time.monotonic() - start_time, 2)

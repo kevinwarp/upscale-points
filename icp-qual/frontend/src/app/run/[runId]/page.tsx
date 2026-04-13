@@ -493,7 +493,9 @@ export default function RunPage() {
                         )}
                         {step.status === "running" && (
                           <span className="text-xs text-[var(--pink)] font-medium animate-pulse mt-0.5">
-                            processing
+                            {step.duration_seconds != null && step.duration_seconds > 0
+                              ? `${Math.floor(step.duration_seconds)}s`
+                              : "processing"}
                           </span>
                         )}
                       </div>

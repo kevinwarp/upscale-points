@@ -155,15 +155,30 @@ async def _run_pipeline_task(run_id: str, domain: str) -> None:
 
         # ── Stage 3: Report generation & upload ─────────────────────
         if report:
+            status.step_start("reports", "Generating reports...", progress=85)
             try:
                 result = await publish_reports(report, upload=True, save_local=True)
                 internal_url = result.internal.share_url if result.internal else None
                 pitch_url = result.pitch.share_url if result.pitch else None
+                detail = []
+                if internal_url:
+                    detail.append("Internal")
+                if pitch_url:
+                    detail.append("Pitch")
+                status.step_complete("reports", f"Reports: {' + '.join(detail) or 'generated'} uploaded", progress=90, data={
+                    "internal_url": internal_url,
+                    "pitch_url": pitch_url,
+                })
             except Exception as e:
                 logger.warning(f"Report publishing failed for {run_id}: {e}")
                 errors.append(f"Reports: {e}")
+                status.step_error("reports", "Report generation failed", error=str(e), progress=90)
+        else:
+            status.step_start("reports", "Skipped — no report data", progress=85)
+            status.step_complete("reports", "Skipped — no report data", progress=90)
 
         # ── Stage 4: Slack delivery (always runs, even on error) ────
+        status.step_start("slack", "Sending Slack notification...", progress=92)
         try:
             slack_main = None
             slack_threads = []
@@ -195,9 +210,11 @@ async def _run_pipeline_task(run_id: str, domain: str) -> None:
                 if pitch_url:
                     slack_threads.append(f":dart: <{pitch_url}|Pitch Report>")
             await post_to_slack(slack_main, slack_threads)
+            status.step_complete("slack", "Slack notification sent", progress=95)
         except Exception as e:
             logger.warning(f"Slack delivery failed for {run_id}: {e}")
             errors.append(f"Slack: {e}")
+            status.step_error("slack", "Slack delivery failed", error=str(e), progress=95)
 
         # ── Final status update ─────────────────────────────────────
         final_status = "done" if report else "error"
@@ -328,6 +345,11 @@ async def pipeline_status(run_id: str):
                             step_map[step_name]["data"] = evt["data"]
                             if evt["data"].get("detail"):
                                 step_map[step_name]["detail"] = evt["data"]["detail"]
+                    elif evt.get("event") == "step_progress":
+                        # Heartbeat: update label but keep status as running
+                        step_map[step_name]["label"] = evt.get("label", step_map[step_name].get("label", step_name))
+                        if evt.get("duration_ms"):
+                            step_map[step_name]["duration_seconds"] = evt["duration_ms"] / 1000
                     elif evt.get("event") == "step_error":
                         step_map[step_name]["status"] = "error"
                         step_map[step_name]["detail"] = evt.get("error") or evt.get("label", "")

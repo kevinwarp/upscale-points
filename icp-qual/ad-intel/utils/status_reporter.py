@@ -225,6 +225,20 @@ class StatusReporter:
         data = {"message_url": message_url} if message_url else None
         return self.step_complete("slack", "Slack delivery complete", progress=95, data=data)
 
+    def step_progress(self, step: str, label: str, progress: int = 0, data: dict[str, Any] | None = None) -> dict:
+        """Emit a heartbeat/progress update for a running step."""
+        duration_ms = None
+        if step in self._step_timers:
+            duration_ms = int((time.monotonic() - self._step_timers[step]) * 1000)
+        return self.emit(
+            "step_progress",
+            step=step,
+            label=label,
+            progress=progress,
+            duration_ms=duration_ms,
+            data=data,
+        )
+
     @staticmethod
     def read_status(domain: str, output_dir: str | Path | None = None) -> list[dict]:
         """Read all status events for a domain. Utility for frontend."""
