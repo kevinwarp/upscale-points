@@ -87,55 +87,46 @@ def generate_internal_report(
     if e and e.logo_url:
         logo_html = f'<img src="{_esc(e.logo_url)}" alt="{company}" class="brand-logo">'
 
-    # Competitor alert banner
-    competitor_alert = _build_competitor_alert(report)
+    # Build sections — each wrapped so one failure doesn't kill the report
+    import logging as _log
+    _ilog = _log.getLogger("internal_report")
 
-    # KPI cards
-    kpi_cards = _build_kpi_cards(report, fit)
+    def _safe(name, fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            _ilog.warning(f"Internal section '{name}' failed: {exc}")
+            return f'<!-- section {name} failed: {_esc(str(exc))} -->'
 
-    # Fit score section
-    fit_section = _build_fit_section(fit)
+    # Compute budget for pitch config panel
+    try:
+        from reports.pitch_report import _budget_tier
+        _budget = _budget_tier(e.estimated_monthly_revenue if e else None, report.brand_intel)
+    except Exception:
+        _budget = {"m1": 5000, "m2": 7500, "m3": 10000}
 
-    # Proposal numbers
-    proposal_section = _build_proposal_section(report, fit)
-
-    # Combined company profile (replaces enrichment + social sections)
-    company_profile_section = _build_company_profile_section(report)
-
-    # CRM intelligence
-    crm_section = _build_crm_section(report)
-
-    # Key contacts
-    contacts_section = _build_contacts_section(report)
-
-    # Ad discovery section
-    ads_section = _build_ads_section(report)
-
-    # Brand intelligence
-    brand_intel_section = _build_brand_intel_section(report)
-
-    # Key Events + Calendar (combined Milled + Wayback + ecommerce calendar)
-    key_events_section = _build_key_events_section(report)
-
-    # Creative Pipeline (AI-generated brief + script + images)
-    creative_pipeline_section = _build_creative_pipeline_section(report)
-
-    # Gaps analysis
-    gaps_section = _build_gaps_section(report, fit)
-
-    # Phase 1: AI Synthesis Sections
-    maturity_section = _paid_media_maturity(report, fit)
-    creative_signals_section = _creative_messaging_signals(report)
-    hypotheses_section = _ctv_youtube_hypotheses(report, fit)
-    committee_section = _buying_committee(report)
-    talk_track_section = _call_talk_track(report, fit)
-    priority_section = _account_priority_signal(report, fit)
-
-    # Phase 2: Deep Research Sections
-    hiring_section = _build_hiring_section(report)
-    news_section = _build_news_section(report)
-    podcasts_section = _build_podcasts_section(report)
-    case_studies_section = _build_case_studies_section(report)
+    competitor_alert = _safe("competitor_alert", _build_competitor_alert, report)
+    kpi_cards = _safe("kpi_cards", _build_kpi_cards, report, fit)
+    fit_section = _safe("fit_section", _build_fit_section, fit)
+    proposal_section = _safe("proposal_section", _build_proposal_section, report, fit)
+    company_profile_section = _safe("company_profile", _build_company_profile_section, report)
+    crm_section = _safe("crm", _build_crm_section, report)
+    contacts_section = _safe("contacts", _build_contacts_section, report)
+    ads_section = _safe("ads", _build_ads_section, report)
+    brand_intel_section = _safe("brand_intel", _build_brand_intel_section, report)
+    key_events_section = _safe("key_events", _build_key_events_section, report)
+    creative_pipeline_section = _safe("creative_pipeline", _build_creative_pipeline_section, report)
+    gaps_section = _safe("gaps", _build_gaps_section, report, fit)
+    maturity_section = _safe("maturity", _paid_media_maturity, report, fit)
+    creative_signals_section = _safe("creative_signals", _creative_messaging_signals, report)
+    hypotheses_section = _safe("hypotheses", _ctv_youtube_hypotheses, report, fit)
+    committee_section = _safe("committee", _buying_committee, report)
+    talk_track_section = _safe("talk_track", _call_talk_track, report, fit)
+    priority_section = _safe("priority", _account_priority_signal, report, fit)
+    hiring_section = _safe("hiring", _build_hiring_section, report)
+    news_section = _safe("news", _build_news_section, report)
+    podcasts_section = _safe("podcasts", _build_podcasts_section, report)
+    case_studies_section = _safe("case_studies", _build_case_studies_section, report)
 
     generated = datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
 
@@ -889,6 +880,109 @@ section h2 {{
     <button class="dl-btn" onclick="dlSection(this)">&darr; Download</button>
     {case_studies_section}
   </div>
+
+  <div class="section-wrap" data-section="Pitch Configuration" data-filename="pitch-config">
+    <div class="section">
+      <h2>&#x2699; Customize &amp; Regenerate Pitch</h2>
+      <p style="color:var(--muted);font-size:.85rem;margin-bottom:20px">Adjust the pitch parameters below and click Regenerate to create a new pitch report with your customizations.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Company Name</label>
+          <input id="pc-company" type="text" value="{company}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem" />
+        </div>
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Industry</label>
+          <input id="pc-industry" type="text" value="{industry}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem" />
+        </div>
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Month 1 Budget</label>
+          <input id="pc-m1" type="number" value="{int(_budget['m1'])}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem" />
+        </div>
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Month 2 Budget</label>
+          <input id="pc-m2" type="number" value="{int(_budget['m2'])}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem" />
+        </div>
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Month 3 Budget</label>
+          <input id="pc-m3" type="number" value="{int(_budget['m3'])}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem" />
+        </div>
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Total Creatives</label>
+          <input id="pc-creatives" type="number" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem" placeholder="Auto (12/18/24)" />
+        </div>
+        <div>
+          <label style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Strategy</label>
+          <select id="pc-strategy" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;background:white">
+            <option value="">Auto-detect</option>
+            <option value="youtube_only">YouTube Only</option>
+            <option value="ctv_led">CTV-Led</option>
+            <option value="full_funnel">Full Funnel (CTV + YouTube)</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button id="pc-regen-btn" onclick="regenPitch()" style="background:var(--pink);color:white;border:none;padding:10px 28px;border-radius:8px;font-weight:700;font-size:.9rem;cursor:pointer;transition:opacity .2s">&#x1f504; Regenerate Pitch</button>
+        <span id="pc-status" style="font-size:.82rem;color:var(--muted)"></span>
+      </div>
+      <div id="pc-result" style="margin-top:16px;display:none">
+        <div style="background:var(--success-light);border:1px solid var(--success);border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+          <span style="font-size:1.2rem">&#x2705;</span>
+          <div>
+            <div style="font-weight:600;color:var(--success)">Pitch regenerated successfully</div>
+            <a id="pc-pitch-link" href="#" target="_blank" rel="noopener" style="color:var(--teal);font-weight:600;font-size:.85rem">Open new pitch report &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  async function regenPitch() {{
+    var btn = document.getElementById('pc-regen-btn');
+    var status = document.getElementById('pc-status');
+    var result = document.getElementById('pc-result');
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    status.textContent = 'Regenerating...';
+    result.style.display = 'none';
+    try {{
+      var config = {{}};
+      var v;
+      v = document.getElementById('pc-company').value.trim();
+      if (v) config.company_name = v;
+      v = document.getElementById('pc-industry').value.trim();
+      if (v) config.industry = v;
+      v = document.getElementById('pc-m1').value;
+      if (v) config.monthly_budget_m1 = parseFloat(v);
+      v = document.getElementById('pc-m2').value;
+      if (v) config.monthly_budget_m2 = parseFloat(v);
+      v = document.getElementById('pc-m3').value;
+      if (v) config.monthly_budget_m3 = parseFloat(v);
+      v = document.getElementById('pc-creatives').value;
+      if (v) config.total_creatives = parseInt(v);
+      v = document.getElementById('pc-strategy').value;
+      if (v) config.strategy_tier = v;
+
+      var resp = await fetch('/icp/api/pitch/regenerate', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{domain: '{domain}', config: config}})
+      }});
+      var data = await resp.json();
+      if (data.pitch_url) {{
+        document.getElementById('pc-pitch-link').href = data.pitch_url;
+        result.style.display = 'block';
+        status.textContent = 'Done!';
+      }} else {{
+        status.textContent = 'Error: ' + (data.error || 'Unknown error');
+      }}
+    }} catch(e) {{
+      status.textContent = 'Error: ' + e.message;
+    }}
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }}
+  </script>
 
   <div class="zip-bar">
     <span>Download full report as Markdown + JSON</span>
@@ -1670,7 +1764,8 @@ def _build_creative_pipeline_section(report: DomainAdReport) -> str:
                 heading = _md_inline(line.lstrip("#").strip())
                 brief_content += f'<h4 style="color:var(--teal);margin:14px 0 4px;font-size:.85rem">{heading}</h4>'
             elif line.startswith("- ") or line.startswith("* "):
-                brief_content += f'<li style="font-size:.82rem;color:#444;margin-bottom:2px">{_md_inline(line[2:])}</li>'
+                item = line[2:].strip()
+                brief_content += f'<li style="font-size:.82rem;color:#444;margin-bottom:2px">{_md_inline(item)}</li>'
             else:
                 brief_content += f'<p style="font-size:.82rem;color:#444;margin-bottom:4px">{_md_inline(line)}</p>'
         brief_html = f"""<div style="background:white;border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px">

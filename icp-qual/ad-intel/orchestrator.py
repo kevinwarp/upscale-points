@@ -321,19 +321,26 @@ async def run_pipeline(
         report.brand_intel.competitors
         + (report.clay.competitors if report.clay else [])
     ))
+    tracker.start("competitor_enrichment")
     if all_competitor_names:
-        tracker.start("competitor_enrichment")
         status.step_start("competitor_enrichment", f"Enriching {len(all_competitor_names)} competitors via StoreLeads...", progress=66)
-        report.enriched_competitors = await _enrich_competitors(
-            all_competitor_names,
-            report.brand_intel.competitors_on_ctv,
-            report.brand_intel.competitors_on_youtube,
-        )
-        tracker.record("StoreLeads (Competitors)", "competitor_enrichment", data_summary=f"{len(report.enriched_competitors)}/{len(all_competitor_names)} enriched")
-        status.step_complete("competitor_enrichment", f"Enriched {len(report.enriched_competitors)} competitors", progress=70, data={
-            "enriched": len(report.enriched_competitors),
-            "total_candidates": len(all_competitor_names),
-        })
+        try:
+            report.enriched_competitors = await _enrich_competitors(
+                all_competitor_names,
+                report.brand_intel.competitors_on_ctv,
+                report.brand_intel.competitors_on_youtube,
+            )
+            tracker.record("StoreLeads (Competitors)", "competitor_enrichment", data_summary=f"{len(report.enriched_competitors)}/{len(all_competitor_names)} enriched")
+            status.step_complete("competitor_enrichment", f"Enriched {len(report.enriched_competitors)} competitors", progress=70, data={
+                "enriched": len(report.enriched_competitors),
+                "total_candidates": len(all_competitor_names),
+            })
+        except Exception as exc:
+            logger.warning(f"Competitor enrichment failed: {exc}")
+            status.step_complete("competitor_enrichment", f"Error: {exc}", progress=70)
+    else:
+        status.step_start("competitor_enrichment", "No competitors to enrich", progress=66)
+        status.step_complete("competitor_enrichment", "No competitors found", progress=70, data={"enriched": 0, "total_candidates": 0})
 
     # Collect Company Pulse (may already be done — it ran in parallel)
     tracker.start("company_pulse")
@@ -494,7 +501,7 @@ async def run_pipeline(
 
     # Collect Creative Pipeline result (may still be running — await it)
     tracker.start("creative_pipeline")
-    status.step_start("creative_pipeline_wait", "Waiting for AI creative generation...", progress=75)
+    status.step_start("creative_pipeline", "Waiting for AI creative generation...", progress=75)
     creative_result = await creative_task
     has_creative_data = creative_result and (creative_result.brand_brief or creative_result.script)
     if has_creative_data:

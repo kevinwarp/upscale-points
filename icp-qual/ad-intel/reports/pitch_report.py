@@ -533,20 +533,69 @@ def _build_why_brand(company, traits: list[dict]) -> str:
 # Main generator
 # ---------------------------------------------------------------------------
 
+class PitchConfig:
+    """Overridable pitch report configuration.
+
+    Any field left as None uses the auto-detected default.
+    """
+    def __init__(
+        self,
+        company_name: str | None = None,
+        industry: str | None = None,
+        monthly_budget_m1: float | None = None,
+        monthly_budget_m2: float | None = None,
+        monthly_budget_m3: float | None = None,
+        total_creatives: int | None = None,
+        strategy_tier: str | None = None,  # "youtube_only", "ctv_led", "full_funnel"
+        include_ctv: bool | None = None,
+        include_youtube: bool | None = None,
+        campaign_start_date: str | None = None,
+    ):
+        self.company_name = company_name
+        self.industry = industry
+        self.monthly_budget_m1 = monthly_budget_m1
+        self.monthly_budget_m2 = monthly_budget_m2
+        self.monthly_budget_m3 = monthly_budget_m3
+        self.total_creatives = total_creatives
+        self.strategy_tier = strategy_tier
+        self.include_ctv = include_ctv
+        self.include_youtube = include_youtube
+        self.campaign_start_date = campaign_start_date
+
+    def to_dict(self) -> dict:
+        return {k: v for k, v in self.__dict__.items() if v is not None}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PitchConfig":
+        return cls(**{k: v for k, v in d.items() if k in cls.__init__.__code__.co_varnames})
+
+
 def generate_pitch_report(
     report: DomainAdReport,
     fit: UpscaleFitResult,
+    config: PitchConfig | None = None,
 ) -> str:
     """Generate the external-facing pitch HTML."""
+    cfg = config or PitchConfig()
     e = report.enrichment
-    company = _esc(report.company_name or report.domain)
+    company = _esc(cfg.company_name or report.company_name or report.domain)
     domain = _esc(report.domain)
-    industry = _esc(e.industry.split("/")[-1].strip()) if e and e.industry else "E-Commerce"
+    industry = _esc(cfg.industry or (e.industry.split("/")[-1].strip() if e and e.industry else "E-Commerce"))
     description = _esc(e.description) if e and e.description else ""
 
     monthly_rev = e.estimated_monthly_revenue if e else None
     intel = report.brand_intel
     budget = _budget_tier(monthly_rev, intel)
+
+    # Apply budget overrides from config
+    if cfg.monthly_budget_m1 is not None:
+        budget["m1"] = cfg.monthly_budget_m1
+    if cfg.monthly_budget_m2 is not None:
+        budget["m2"] = cfg.monthly_budget_m2
+    if cfg.monthly_budget_m3 is not None:
+        budget["m3"] = cfg.monthly_budget_m3
+    budget["daily"] = round(budget["m1"] / 30)
+
     has_shopify = _detect_shopify(report)
     has_klaviyo = _detect_klaviyo(report)
 
@@ -558,39 +607,53 @@ def generate_pitch_report(
     # Determine spend strategy based on annual ad spend tier
     strategy = _spend_strategy(intel, budget)
 
-    # Build sections
-    hero = _build_hero(company, domain, industry, description, logo_html, budget, strategy)
-    exec_summary = _build_exec_summary(company, report, budget, intel, has_shopify, has_klaviyo, strategy)
-    toc = _build_toc(company, report, intel, strategy)
-    problem = _build_problem(company, report, budget)
-    overview = _build_overview(company, budget, monthly_rev, intel, strategy)
-    company_snapshot = _build_company_snapshot(company, report, intel)
-    why_brand = _build_why_brand(company, brand_traits)
-    integration = _build_integration(company, has_shopify, has_klaviyo)
-    platform = _build_platform()
-    creative_system = _build_creative_system(company, report)
-    spend_charts = _build_spend_charts(company, budget, strategy)
-    campaign_plan = _build_campaign_plan(company, budget, has_shopify, has_klaviyo, strategy, report)
+    # Apply strategy tier override from config
+    if cfg.strategy_tier and cfg.strategy_tier in ("youtube_only", "ctv_led", "full_funnel"):
+        strategy["tier"] = cfg.strategy_tier
+
+    # Build sections — each wrapped so one failure doesn't kill the report
+    import logging as _log
+    _plog = _log.getLogger("pitch_report")
+
+    def _safe(name, fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            _plog.warning(f"Pitch section '{name}' failed: {exc}")
+            return f'<!-- section {name} failed: {_esc(str(exc))} -->'
+
+    hero = _safe("hero", _build_hero, company, domain, industry, description, logo_html, budget, strategy)
+    exec_summary = _safe("exec_summary", _build_exec_summary, company, report, budget, intel, has_shopify, has_klaviyo, strategy)
+    toc = _safe("toc", _build_toc, company, report, intel, strategy)
+    problem = _safe("problem", _build_problem, company, report, budget)
+    overview = _safe("overview", _build_overview, company, budget, monthly_rev, intel, strategy)
+    company_snapshot = _safe("company_snapshot", _build_company_snapshot, company, report, intel)
+    why_brand = _safe("why_brand", _build_why_brand, company, brand_traits)
+    integration = _safe("integration", _build_integration, company, has_shopify, has_klaviyo)
+    platform = _safe("platform", _build_platform)
+    creative_system = _safe("creative_system", _build_creative_system, company, report, budget)
+    spend_charts = _safe("spend_charts", _build_spend_charts, company, budget, strategy)
+    campaign_plan = _safe("campaign_plan", _build_campaign_plan, company, budget, has_shopify, has_klaviyo, strategy, report)
     # For YouTube-only tier, skip CTV impact section
     if strategy["tier"] == "youtube_only":
         ctv_impact = ""
     else:
-        ctv_impact = _build_ctv_impact(company, report, budget, has_shopify)
-    youtube_impact = _build_youtube_impact(company, report, budget)
-    optimization = _build_optimization_engine(company)
-    attribution = _build_attribution_system(company, has_shopify)
+        ctv_impact = _safe("ctv_impact", _build_ctv_impact, company, report, budget, has_shopify)
+    youtube_impact = _safe("youtube_impact", _build_youtube_impact, company, report, budget)
+    optimization = _safe("optimization", _build_optimization_engine, company)
+    attribution = _safe("attribution", _build_attribution_system, company, has_shopify)
     promo_cal = ""  # Now embedded inside campaign plan
-    competitive = _build_competitive_landscape(company, intel)
-    roi_projection = _build_roi_projection(company, budget, monthly_rev, intel, strategy, has_shopify, e)
-    audience_strategy = _build_audience_strategy(company, report, intel, strategy, has_shopify, has_klaviyo)
-    objection_killer = _build_objection_killer(company, report, budget, strategy)
-    results = _build_proven_results(company, e.industry if e else None)
-    creative_preview = _build_creative_preview(company, report)
-    audio_demos = _build_audio_demos(company, report)
-    creative_showcase = _build_creative_showcase(report)
-    ad_discovery_video = _build_ad_discovery_video(company, report)
-    inventory = _build_inventory()
-    next_steps = _build_next_steps(company, budget)
+    competitive = _safe("competitive", _build_competitive_landscape, company, intel)
+    roi_projection = _safe("roi_projection", _build_roi_projection, company, budget, monthly_rev, intel, strategy, has_shopify, e)
+    audience_strategy = _safe("audience_strategy", _build_audience_strategy, company, report, intel, strategy, has_shopify, has_klaviyo)
+    objection_killer = _safe("objection_killer", _build_objection_killer, company, report, budget, strategy)
+    results = _safe("results", _build_proven_results, company, e.industry if e else None)
+    creative_preview = _safe("creative_preview", _build_creative_preview, company, report)
+    audio_demos = _safe("audio_demos", _build_audio_demos, company, report)
+    creative_showcase = _safe("creative_showcase", _build_creative_showcase, report)
+    ad_discovery_video = _safe("ad_discovery_video", _build_ad_discovery_video, company, report)
+    inventory = "" if strategy["tier"] == "youtube_only" else _safe("inventory", _build_inventory)
+    next_steps = _safe("next_steps", _build_next_steps, company, budget)
 
     generated = datetime.utcnow().strftime("%B %d, %Y")
 
@@ -2284,7 +2347,19 @@ def _build_platform() -> str:
 </div>"""
 
 
-def _build_creative_system(company, report: DomainAdReport) -> str:
+def _build_creative_system(company, report: DomainAdReport, budget: dict | None = None) -> str:
+    # Determine total creatives based on monthly spend tier
+    monthly_spend = budget.get("m3", 0) if budget else 0
+    if monthly_spend >= 30_000:
+        total_creatives = 24
+        cadence = "3+"
+    elif monthly_spend >= 15_000:
+        total_creatives = 18
+        cadence = "2-3"
+    else:
+        total_creatives = 12
+        cadence = "2+"
+
     has_ads = report.channel_mix.total_ads_found > 0 if report.channel_mix else False
     ad_count = report.channel_mix.total_ads_found if report.channel_mix else 0
 
@@ -2310,14 +2385,14 @@ def _build_creative_system(company, report: DomainAdReport) -> str:
       <p style="font-size:.78rem;color:var(--muted);margin-top:6px">vs. 6-7 weeks traditional</p>
     </div>
     <div style="text-align:center;padding:20px">
-      <div class="stat-big">2-20+</div>
-      <div class="stat-label">Creatives / Month</div>
-      <p style="font-size:.78rem;color:var(--muted);margin-top:6px">Always-on testing</p>
+      <div class="stat-big">{total_creatives}</div>
+      <div class="stat-label">Total Creatives</div>
+      <p style="font-size:.78rem;color:var(--muted);margin-top:6px">Included in your plan</p>
     </div>
     <div style="text-align:center;padding:20px">
-      <div class="stat-big">95%</div>
-      <div class="stat-label">Cost Savings</div>
-      <p style="font-size:.78rem;color:var(--muted);margin-top:6px">vs. agency production</p>
+      <div class="stat-big">{cadence}</div>
+      <div class="stat-label">New Creative</div>
+      <p style="font-size:.78rem;color:var(--muted);margin-top:6px">every 2-3 weeks</p>
     </div>
   </div>
 
@@ -2607,7 +2682,7 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
                 brief_content += f'<p style="font-weight:700;color:var(--navy);margin-top:14px;margin-bottom:4px;font-size:.9rem">{_md_to_html(heading)}</p>'
             # Bullet points
             elif p.startswith("- ") or p.startswith("* "):
-                item = p.lstrip("-* ").strip()
+                item = p[2:].strip()
                 brief_content += f'<div style="display:flex;gap:6px;padding:2px 0 2px 12px;font-size:.82rem;color:#444"><span style="color:var(--teal);flex-shrink:0">•</span><span>{_md_to_html(item)}</span></div>'
             else:
                 brief_content += f'<p style="font-size:.84rem;color:#444;margin-bottom:6px;line-height:1.6">{_md_to_html(p)}</p>'
@@ -3043,7 +3118,7 @@ def _build_creative_showcase(report: DomainAdReport) -> str:
     e = report.enrichment
     relevance_keywords: set[str] = set()
     if e:
-        for field in [e.industry, e.description, e.primary_country]:
+        for field in [e.industry, e.description]:
             if field:
                 relevance_keywords.update(w.lower() for w in field.split() if len(w) > 2)
         if e.product_categories:
@@ -4576,17 +4651,33 @@ def _build_why_upscale() -> str:
 
 def _build_inventory() -> str:
     partners = [
-        "Hulu", "Peacock", "Paramount+", "Max", "Netflix",
-        "Discovery+", "Tubi", "Pluto TV", "Samsung TV+",
-        "LG Channels", "Roku Channel", "Amazon Freevee",
-        "Sling TV", "Fubo", "Fox Nation", "YouTube",
+        ("Hulu", "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Hulu_Logo.svg/440px-Hulu_Logo.svg.png"),
+        ("Peacock", "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/NBCUniversal_Peacock_Logo.svg/440px-NBCUniversal_Peacock_Logo.svg.png"),
+        ("Paramount+", "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Paramount_Plus.svg/440px-Paramount_Plus.svg.png"),
+        ("Max", "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ce/Max_logo.svg/440px-Max_logo.svg.png"),
+        ("Netflix", "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/440px-Netflix_2015_logo.svg.png"),
+        ("Discovery+", "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Discovery_Plus_logo.svg/440px-Discovery_Plus_logo.svg.png"),
+        ("Tubi", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Tubi_logo_%282023%29.svg/440px-Tubi_logo_%282023%29.svg.png"),
+        ("Pluto TV", "https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Pluto_tv_logo_2020.svg/440px-Pluto_tv_logo_2020.svg.png"),
+        ("Samsung TV+", "https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Samsung_Logo.svg/440px-Samsung_Logo.svg.png"),
+        ("LG Channels", "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/LG_logo_%282015%29.svg/440px-LG_logo_%282015%29.svg.png"),
+        ("Roku", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/Roku_logo.svg/440px-Roku_logo.svg.png"),
+        ("Sling TV", "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Sling_TV_logo.svg/440px-Sling_TV_logo.svg.png"),
+        ("Fubo", "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/FuboTV_logo.svg/440px-FuboTV_logo.svg.png"),
+        ("Fox Nation", "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Fox_News_Channel_logo.svg/440px-Fox_News_Channel_logo.svg.png"),
+        ("YouTube", "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/YouTube_Logo_2017.svg/440px-YouTube_Logo_2017.svg.png"),
     ]
-    pills = "".join(f'<span class="logo-pill">{p}</span>' for p in partners)
+    cards = "".join(
+        f'<div class="logo-pill" style="display:flex;align-items:center;justify-content:center;min-width:130px;min-height:56px;padding:10px 16px">'
+        f'<img src="{url}" alt="{name}" style="max-height:32px;max-width:110px;object-fit:contain" loading="lazy">'
+        f'</div>'
+        for name, url in partners
+    )
 
     return f"""<div class="section alt">
   <h2>Premium Streaming Inventory</h2>
   <p class="section-sub">Access 150+ streaming apps and channels through our programmatic partnerships — including YouTube natively.</p>
-  <div class="logo-grid">{pills}</div>
+  <div class="logo-grid">{cards}</div>
 </div>"""
 
 

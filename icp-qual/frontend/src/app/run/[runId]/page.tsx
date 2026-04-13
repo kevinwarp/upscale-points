@@ -270,7 +270,7 @@ export default function RunPage() {
     // Real polling
     async function poll() {
       try {
-        const res = await fetch(`/api/pipeline/status/${runId}`);
+        const res = await fetch(`/icp/api/pipeline/status/${runId}`);
         if (res.ok) {
           const data = await res.json();
           // Merge backend steps onto known PIPELINE_STEPS so numbering/icons are preserved
@@ -480,9 +480,9 @@ export default function RunPage() {
                               {step.label}
                             </span>
                           </div>
-                          {step.detail && step.status === "done" && (
-                            <p className="text-xs text-[var(--muted)] mt-0.5 ml-7">
-                              {step.detail}
+                          {step.detail && (step.status === "done" || step.status === "error") && (
+                            <p className={`text-xs mt-0.5 ml-7 ${step.status === "error" ? "text-[#D92D20] font-medium" : "text-[var(--muted)]"}`}>
+                              {step.status === "error" ? `❌ ${step.detail}` : step.detail}
                             </p>
                           )}
                         </div>
@@ -546,9 +546,9 @@ export default function RunPage() {
                               {step.label}
                             </span>
                           </div>
-                          {step.detail && step.status === "done" && (
-                            <p className="text-xs text-[var(--muted)] mt-0.5 ml-7">
-                              {step.detail}
+                          {step.detail && (step.status === "done" || step.status === "error") && (
+                            <p className={`text-xs mt-0.5 ml-7 ${step.status === "error" ? "text-[#D92D20] font-medium" : "text-[var(--muted)]"}`}>
+                              {step.status === "error" ? `❌ ${step.detail}` : step.detail}
                             </p>
                           )}
                         </div>
@@ -613,25 +613,22 @@ export default function RunPage() {
                     {[
                       {
                         label: "Ads Found",
-                        value:
-                          (getStepData("meta")?.data?.ads as number || 0) +
-                          (getStepData("youtube")?.data?.ads as number || 0) +
-                          (getStepData("ispot")?.data?.ads as number || 0),
+                        value: getStepData("scrapers")?.data?.ads as number || 0,
                         icon: "📺",
                       },
                       {
                         label: "Contacts",
-                        value: getStepData("contacts")?.data?.count || 0,
+                        value: getStepData("contact_search")?.data?.count as number || 0,
                         icon: "👥",
                       },
                       {
                         label: "Competitors",
-                        value: getStepData("competitor")?.data?.competitors || 0,
+                        value: getStepData("competitor_enrichment")?.data?.competitors as number || 0,
                         icon: "🔍",
                       },
                       {
                         label: "Open Jobs",
-                        value: getStepData("clay")?.data?.jobs || 0,
+                        value: getStepData("clay_enrichment")?.data?.jobs as number || 0,
                         icon: "💼",
                       },
                     ].map((kpi) => (
@@ -782,17 +779,35 @@ export default function RunPage() {
           )}
 
           {/* ── Error state ── */}
-          {run.status === "error" && run.error && (
-            <div className="card mt-6 bg-[var(--danger-light)] border-2 border-[var(--danger)]">
-              <h2 className="text-base font-semibold text-[var(--danger)] mb-2">
-                ❌ Pipeline error
+          {run.status === "error" && (
+            <div className="card mt-6" style={{ background: "#FEF3F2", border: "2px solid #D92D20" }}>
+              <h2 className="text-base font-semibold mb-2" style={{ color: "#D92D20" }}>
+                ❌ Pipeline Failed
               </h2>
-              <p className="text-sm text-[var(--navy)]">{run.error}</p>
+              {run.error ? (
+                <pre className="text-sm text-[var(--navy)] whitespace-pre-wrap font-mono bg-white/60 rounded-lg p-3 mt-2">{run.error}</pre>
+              ) : (
+                <p className="text-sm text-[var(--navy)]">The pipeline encountered an unknown error.</p>
+              )}
+              {(run as any).errors && (run as any).errors.length > 1 && (
+                <details className="mt-3">
+                  <summary className="text-xs font-medium cursor-pointer" style={{ color: "#D92D20" }}>
+                    View all {(run as any).errors.length} errors
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {(run as any).errors.map((err: string, i: number) => (
+                      <li key={i} className="text-xs text-[var(--navy)] font-mono bg-white/60 rounded px-2 py-1">
+                        {err}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               <button
-                onClick={() => window.location.reload()}
+                onClick={() => window.location.href = "/icp"}
                 className="btn btn-outline text-xs mt-4"
               >
-                Retry
+                ← Try another domain
               </button>
             </div>
           )}

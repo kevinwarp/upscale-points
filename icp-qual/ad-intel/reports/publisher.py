@@ -105,49 +105,72 @@ async def publish_reports(
         fit_grade=fit.grade,
     )
 
-    # Generate HTML reports
-    logger.info(f"Generating internal ICP report for {domain}...")
-    internal_html = generate_internal_report(report, fit)
+    # Generate HTML reports — each independently so one failure doesn't block the other
+    internal_html = None
+    pitch_html = None
 
-    logger.info(f"Generating pitch report for {domain}...")
-    pitch_html = generate_pitch_report(report, fit)
+    try:
+        logger.info(f"Generating internal ICP report for {domain}...")
+        internal_html = generate_internal_report(report, fit)
+    except Exception as e:
+        logger.error(f"Internal report generation failed for {domain}: {e}")
+        result.error = f"Internal report generation failed: {e}"
+
+    try:
+        logger.info(f"Generating pitch report for {domain}...")
+        pitch_html = generate_pitch_report(report, fit)
+    except Exception as e:
+        logger.error(f"Pitch report generation failed for {domain}: {e}")
+        err = f"Pitch report generation failed: {e}"
+        result.error = f"{result.error}; {err}" if result.error else err
 
     # Save locally
     if save_local:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        internal_path = OUTPUT_DIR / f"{domain}_internal.html"
-        pitch_path = OUTPUT_DIR / f"{domain}_pitch.html"
-        internal_path.write_text(internal_html, encoding="utf-8")
-        pitch_path.write_text(pitch_html, encoding="utf-8")
-        logger.info(f"Saved local reports: {internal_path}, {pitch_path}")
+        if internal_html:
+            internal_path = OUTPUT_DIR / f"{domain}_internal.html"
+            internal_path.write_text(internal_html, encoding="utf-8")
+            logger.info(f"Saved local internal report: {internal_path}")
+        if pitch_html:
+            pitch_path = OUTPUT_DIR / f"{domain}_pitch.html"
+            pitch_path.write_text(pitch_html, encoding="utf-8")
+            logger.info(f"Saved local pitch report: {pitch_path}")
 
     # Upload to platform
     if upload:
+        internal_resp = None
+        if not internal_html:
+            logger.warning("Skipping internal report upload — generation failed")
         try:
-            logger.info(f"Uploading internal report for {domain}...")
-            internal_resp = await upload_html_to_platform(
-                internal_html,
-                f"{domain}_icp_report.html",
-            )
-            if internal_resp:
-                result.internal = PublishedReport(
-                    report_type="internal",
-                    slug=internal_resp["slug"],
-                    passcode=internal_resp["passcode"],
-                    url=internal_resp["url"],
-                    share_url=internal_resp["shareUrl"],
+            if internal_html:
+                logger.info(f"Uploading internal report for {domain}...")
+                internal_resp = await upload_html_to_platform(
+                    internal_html,
+                    f"{domain}_icp_report.html",
                 )
-                logger.info(f"Internal report uploaded: {result.internal.share_url}")
+                if internal_resp:
+                    result.internal = PublishedReport(
+                        report_type="internal",
+                        slug=internal_resp["slug"],
+                        passcode=internal_resp["passcode"],
+                        url=internal_resp["url"],
+                        share_url=internal_resp["shareUrl"],
+                    )
+                    logger.info(f"Internal report uploaded: {result.internal.share_url}")
         except Exception as e:
             logger.error(f"Failed to upload internal report: {e}")
             result.error = f"Internal upload failed: {e}"
 
+        pitch_resp = None
         try:
-            logger.info(f"Uploading pitch report for {domain}...")
-            pitch_resp = await upload_html_to_platform(
-                pitch_html,
-                f"{domain}_streaming_proposal.html",
-            )
+            if not pitch_html:
+                logger.warning("Skipping pitch report upload — generation failed")
+            else:
+                logger.info(f"Uploading pitch report for {domain}...")
+                pitch_resp = await upload_html_to_platform(
+                    pitch_html,
+                    f"{domain}_streaming_proposal.html",
+                )
             if pitch_resp:
                 result.pitch = PublishedReport(
                     report_type="pitch",

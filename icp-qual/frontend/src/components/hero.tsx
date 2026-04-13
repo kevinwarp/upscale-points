@@ -20,7 +20,7 @@ export function Hero() {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/pipeline/start", {
+      const res = await fetch("/icp/api/pipeline/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain: clean }),

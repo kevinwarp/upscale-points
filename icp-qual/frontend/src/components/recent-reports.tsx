@@ -137,7 +137,7 @@ export function RecentReports() {
   const [reports, setReports] = useState<ReportSummary[]>(DEMO_REPORTS);
 
   useEffect(() => {
-    fetch("/api/reports")
+    fetch("/icp/api/reports")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {

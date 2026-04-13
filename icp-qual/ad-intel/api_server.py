@@ -47,12 +47,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-memory run store ──────────────────────────────────────────
-# Maps run_id → run metadata dict
-RUNS: dict[str, dict[str, Any]] = {}
+# ── Persistent run store ─────────────────────────────────────────
+# Maps run_id → run metadata dict. Persisted to disk as JSON so runs
+# survive server restarts (uvicorn --reload, crashes, etc.).
 
 STATUS_DIR = Path(__file__).resolve().parent / "output" / "status"
 REPORTS_DIR = Path(__file__).resolve().parent / "output" / "reports"
+RUNS_FILE = Path(__file__).resolve().parent / "output" / "runs.json"
+
+
+def _load_runs() -> dict[str, dict[str, Any]]:
+    """Load runs from disk. Returns empty dict if file doesn't exist."""
+    if RUNS_FILE.exists():
+        try:
+            data = json.loads(RUNS_FILE.read_text())
+            # Mark any previously "running" runs as interrupted
+            for run_id, run in data.items():
+                if run.get("status") == "running":
+                    run["status"] = "error"
+                    run["error"] = "Server restarted while pipeline was running"
+                    run.setdefault("errors", []).append("Server restart interrupted pipeline")
+            logger.info(f"Loaded {len(data)} runs from disk")
+            return data
+        except Exception as e:
+            logger.warning(f"Could not load runs.json: {e}")
+    return {}
+
+
+def _save_runs() -> None:
+    """Persist current runs to disk."""
+    try:
+        RUNS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        RUNS_FILE.write_text(json.dumps(RUNS, indent=2, default=str))
+    except Exception as e:
+        logger.warning(f"Could not save runs.json: {e}")
+
+
+RUNS: dict[str, dict[str, Any]] = _load_runs()
 
 
 # ── Models ───────────────────────────────────────────────────────
@@ -74,110 +105,155 @@ async def _run_pipeline_task(run_id: str, domain: str) -> None:
 
     Each stage is wrapped individually so errors don't prevent subsequent
     stages from running. Errors are collected and still delivered to Slack.
+    Top-level try/except ensures any uncaught error still marks the run as failed.
     """
-    RUNS[run_id]["status"] = "running"
-    RUNS[run_id]["started_at"] = datetime.now(timezone.utc).isoformat()
-
-    from orchestrator import run_pipeline
-    from utils.status_reporter import StatusReporter
-    from scoring.upscale_fit import calculate_upscale_fit
-    from reports.publisher import publish_reports
-    from utils.slack_delivery import build_slack_messages, post_to_slack
-
-    status = StatusReporter(domain, output_dir=str(STATUS_DIR / run_id))
-    errors: list[str] = []
-    report = None
-    call_tracker = None
-    fit = None
-    internal_url = None
-    pitch_url = None
-
-    # ── Stage 1: Pipeline (data collection) ─────────────────────
     try:
-        report, call_tracker = await run_pipeline(
-            domain=domain,
-            headless=True,
-            status=status,
-        )
-    except Exception as e:
-        logger.exception(f"Pipeline data collection failed for {run_id}: {e}")
-        errors.append(f"Pipeline: {e}")
+        RUNS[run_id]["status"] = "running"
+        RUNS[run_id]["started_at"] = datetime.now(timezone.utc).isoformat()
+        _save_runs()
 
-    # ── Stage 2: Scoring ────────────────────────────────────────
-    if report:
-        try:
-            fit = calculate_upscale_fit(report)
-        except Exception as e:
-            logger.warning(f"Scoring failed for {run_id}: {e}")
-            errors.append(f"Scoring: {e}")
+        from orchestrator import run_pipeline
+        from utils.status_reporter import StatusReporter
+        from scoring.upscale_fit import calculate_upscale_fit
+        from reports.publisher import publish_reports
+        from utils.slack_delivery import build_slack_messages, post_to_slack
 
-    # ── Stage 3: Report generation & upload ─────────────────────
-    if report:
-        try:
-            result = await publish_reports(report, upload=True, save_local=True)
-            internal_url = result.internal.share_url if result.internal else None
-            pitch_url = result.pitch.share_url if result.pitch else None
-        except Exception as e:
-            logger.warning(f"Report publishing failed for {run_id}: {e}")
-            errors.append(f"Reports: {e}")
+        status = StatusReporter(domain, output_dir=str(STATUS_DIR / run_id))
+        errors: list[str] = []
+        report = None
+        call_tracker = None
+        fit = None
+        internal_url = None
+        pitch_url = None
 
-    # ── Stage 4: Slack delivery ─────────────────────────────────
-    if report:
+        # ── Stage 1: Pipeline (data collection) ─────────────────────
         try:
-            slack_main, slack_threads = build_slack_messages(
-                report, fit,
-                internal_url=internal_url,
-                pitch_url=pitch_url,
-                call_tracker=call_tracker,
+            report, call_tracker = await run_pipeline(
+                domain=domain,
+                headless=True,
+                status=status,
             )
+        except Exception as e:
+            logger.exception(f"Pipeline data collection failed for {run_id}: {e}")
+            errors.append(f"Pipeline: {e}")
+
+        # ── Stage 2: Scoring ────────────────────────────────────────
+        if report:
+            try:
+                fit = calculate_upscale_fit(report)
+            except Exception as e:
+                logger.warning(f"Scoring failed for {run_id}: {e}")
+                errors.append(f"Scoring: {e}")
+
+        # ── Stage 2b: Save report JSON for regeneration ────────────
+        if report:
+            try:
+                from utils.json_formatter import save_report
+                save_report(report, filename=f"{domain}_report.json")
+            except Exception as e:
+                logger.warning(f"Report JSON save failed for {run_id}: {e}")
+
+        # ── Stage 3: Report generation & upload ─────────────────────
+        if report:
+            try:
+                result = await publish_reports(report, upload=True, save_local=True)
+                internal_url = result.internal.share_url if result.internal else None
+                pitch_url = result.pitch.share_url if result.pitch else None
+            except Exception as e:
+                logger.warning(f"Report publishing failed for {run_id}: {e}")
+                errors.append(f"Reports: {e}")
+
+        # ── Stage 4: Slack delivery (always runs, even on error) ────
+        try:
+            slack_main = None
+            slack_threads = []
+            if report and fit:
+                try:
+                    slack_main, slack_threads = build_slack_messages(
+                        report, fit,
+                        internal_url=internal_url,
+                        pitch_url=pitch_url,
+                        call_tracker=call_tracker,
+                    )
+                except Exception as msg_err:
+                    logger.warning(f"build_slack_messages failed for {run_id}: {msg_err}")
+                    errors.append(f"Slack message build: {msg_err}")
+            if not slack_main:
+                # Fallback: simple message when pipeline failed or message build crashed
+                error_summary = "; ".join(errors) if errors else "Unknown error"
+                score_line = f"\n*Score: {fit.total_score}/100 ({fit.grade})*" if fit else ""
+                slack_main = (
+                    f":{'warning' if report else 'x'}: *ICP Qualification {'Partial' if report else 'Failed'}: {domain}*"
+                    f"{score_line}\n"
+                    f"\n"
+                    f"*Errors:*\n"
+                    f"```{error_summary}```\n"
+                    f"_Run ID: {run_id}_"
+                )
+                if internal_url:
+                    slack_threads.append(f":memo: <{internal_url}|Internal Report>")
+                if pitch_url:
+                    slack_threads.append(f":dart: <{pitch_url}|Pitch Report>")
             await post_to_slack(slack_main, slack_threads)
         except Exception as e:
             logger.warning(f"Slack delivery failed for {run_id}: {e}")
             errors.append(f"Slack: {e}")
 
-    # ── Final status update ─────────────────────────────────────
-    final_status = "done" if report else "error"
-    if errors and report:
-        final_status = "done"  # partial success — still mark done
+        # ── Final status update ─────────────────────────────────────
+        final_status = "done" if report else "error"
+        if errors and report:
+            final_status = "done"  # partial success — still mark done
 
-    run_update: dict[str, Any] = {
-        "status": final_status,
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        "domain": domain,
-    }
+        run_update: dict[str, Any] = {
+            "status": final_status,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "domain": domain,
+        }
 
-    if errors:
-        run_update["errors"] = errors
-        run_update["error"] = "; ".join(errors)
+        if errors:
+            run_update["errors"] = errors
+            run_update["error"] = "; ".join(errors)
 
-    if report:
-        run_update["company_name"] = report.company_name
-        if fit:
-            run_update["score"] = fit.total_score
-            run_update["grade"] = fit.grade
-        run_update["pitch_url"] = pitch_url
-        run_update["internal_url"] = internal_url
+        if report:
+            run_update["company_name"] = report.company_name
+            if fit:
+                run_update["score"] = fit.total_score
+                run_update["grade"] = fit.grade
+            run_update["pitch_url"] = pitch_url
+            run_update["internal_url"] = internal_url
+            try:
+                run_update["revenue"] = report.enrichment.estimated_annual_revenue if report.enrichment else None
+                run_update["ads_found"] = len(report.ispot_ads.ads) + len(report.youtube_ads.ads) + len(report.meta_ads.ads)
+            except Exception:
+                run_update["revenue"] = None
+                run_update["ads_found"] = 0
+
+        RUNS[run_id].update(run_update)
+        _save_runs()
+
         try:
-            run_update["revenue"] = report.enrichment.estimated_annual_revenue if report.enrichment else None
-            run_update["ads_found"] = len(report.ispot_ads.ads) + len(report.youtube_ads.ads) + len(report.meta_ads.ads)
+            if fit:
+                status.pipeline_complete(
+                    fit_score=fit.total_score,
+                    fit_grade=fit.grade,
+                    internal_url=internal_url,
+                    pitch_url=pitch_url,
+                )
+            else:
+                status.pipeline_complete()
         except Exception:
-            run_update["revenue"] = None
-            run_update["ads_found"] = 0
+            pass
 
-    RUNS[run_id].update(run_update)
-
-    try:
-        if fit:
-            status.pipeline_complete(
-                fit_score=fit.total_score,
-                fit_grade=fit.grade,
-                internal_url=internal_url,
-                pitch_url=pitch_url,
-            )
-        else:
-            status.pipeline_complete()
-    except Exception:
-        pass
+    except Exception as e:
+        # Catch-all: any uncaught error marks run as failed
+        logger.exception(f"FATAL: Pipeline task crashed for {run_id}: {e}")
+        RUNS[run_id].update({
+            "status": "error",
+            "error": f"Fatal error: {e}",
+            "errors": [f"Fatal: {e}"],
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
+        _save_runs()
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -198,6 +274,7 @@ async def start_pipeline(req: StartRequest):
         "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    _save_runs()
 
     # Kick off pipeline as background task
     asyncio.create_task(_run_pipeline_task(run_id, domain))
@@ -300,6 +377,100 @@ async def list_reports():
         })
 
     return reports[:20]
+
+
+SLACK_PENDING_DIR = Path(__file__).resolve().parent / "output" / "slack_pending"
+
+
+@app.get("/api/slack/pending")
+async def list_pending_slack():
+    """List Slack messages awaiting MCP delivery."""
+    if not SLACK_PENDING_DIR.exists():
+        return []
+    pending = []
+    for f in sorted(SLACK_PENDING_DIR.glob("*.json")):
+        try:
+            data = json.loads(f.read_text())
+            if data.get("status") == "pending":
+                data["filename"] = f.name
+                pending.append(data)
+        except Exception:
+            pass
+    return pending
+
+
+@app.post("/api/slack/sent/{filename}")
+async def mark_slack_sent(filename: str, permalink: str = ""):
+    """Mark a pending Slack message as sent (called after MCP delivery)."""
+    filepath = SLACK_PENDING_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Pending message not found")
+    data = json.loads(filepath.read_text())
+    data["status"] = "sent"
+    data["sent_at"] = datetime.now(timezone.utc).isoformat()
+    if permalink:
+        data["permalink"] = permalink
+    filepath.write_text(json.dumps(data, indent=2))
+    return {"ok": True}
+
+
+class RegenPitchRequest(BaseModel):
+    domain: str
+    config: dict = {}
+
+
+@app.post("/api/pitch/regenerate")
+async def regenerate_pitch(req: RegenPitchRequest):
+    """Regenerate a pitch report with custom config overrides."""
+    domain = req.domain.strip().lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+    if not domain:
+        raise HTTPException(status_code=400, detail="Missing domain")
+
+    # Find the most recent completed run for this domain
+    matching_run = None
+    for run_id, run in sorted(RUNS.items(), key=lambda x: x[1].get("created_at", ""), reverse=True):
+        if run.get("domain") == domain and run.get("status") == "done":
+            matching_run = run
+            break
+
+    if not matching_run:
+        raise HTTPException(status_code=404, detail=f"No completed run found for {domain}")
+
+    try:
+        from reports.pitch_report import generate_pitch_report, PitchConfig
+        from reports.publisher import upload_html_to_platform
+        from scoring.upscale_fit import calculate_upscale_fit
+
+        # Load the saved report data
+        report_path = REPORTS_DIR / f"{domain}_report.json"
+        if not report_path.exists():
+            raise HTTPException(status_code=404, detail=f"Report data not found for {domain}. Run the pipeline again.")
+
+        from models.ad_models import DomainAdReport
+        report = DomainAdReport.model_validate_json(report_path.read_text())
+        fit = calculate_upscale_fit(report)
+
+        # Build PitchConfig from request
+        config = PitchConfig.from_dict(req.config)
+
+        # Generate pitch HTML with overrides
+        pitch_html = generate_pitch_report(report, fit, config=config)
+
+        # Upload
+        resp = await upload_html_to_platform(pitch_html, f"{domain}_streaming_proposal.html")
+        if resp:
+            pitch_url = resp["shareUrl"]
+            # Update run data
+            matching_run["pitch_url"] = pitch_url
+            _save_runs()
+            return {"ok": True, "pitch_url": pitch_url}
+        else:
+            return {"ok": False, "error": "Upload failed"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Pitch regeneration failed for {domain}: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/health")
