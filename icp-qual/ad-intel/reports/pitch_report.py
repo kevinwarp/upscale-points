@@ -3381,14 +3381,14 @@ def _build_creative_showcase(report: DomainAdReport) -> str:
     VIDEOS = [
         {"id": "1171126835", "brand": "Biom", "cats": ["Home", "CPG", "Subscription"]},
         {"id": "1171126946", "brand": "Book of the Month", "cats": ["Subscription"]},
-        {"id": "1073355024", "h": "20adb5f2eb", "brand": "Branch", "cats": ["Home", "Furniture"]},
+        {"id": "1073355024", "h": "20adb5f2eb", "brand": "Branch", "cats": ["Home", "Furniture"], "thumb": "https://i.vimeocdn.com/video/2002473501-3a6b528da4a41c32c7af0ac1f4dd5ab1d4915dae2e5ebd5564dd4e15a3ec9a94-d_640x360"},
         {"id": "1171126818", "brand": "Canopy", "cats": ["Home", "Health", "Subscription"]},
         {"id": "1171126927", "brand": "Jones Road Beauty", "cats": ["Beauty", "Subscription"]},
         {"id": "1073355127", "brand": "Lalo", "cats": ["Home", "Baby"]},
         {"id": "1171126903", "brand": "Laundry Sauce", "cats": ["Home", "CPG", "Subscription"]},
         {"id": "1171126796", "brand": "Momofuku", "cats": ["Food", "Subscription"]},
         {"id": "1171126767", "brand": "Mood", "cats": ["Health", "Subscription"]},
-        {"id": "1073354880", "h": "931ddff1fc", "brand": "Newton", "cats": ["Home", "Baby"]},
+        {"id": "1073354880", "h": "931ddff1fc", "brand": "Newton", "cats": ["Home", "Baby"], "thumb": "https://i.vimeocdn.com/video/2004142873-f8f18baf12894a6cb938eecc12bc26a0530ccdf35ae4ba743aea365ef2c278d9-d_640x360"},
         {"id": "1171126878", "brand": "Rally", "cats": ["Fitness", "Health"]},
         {"id": "1171126858", "brand": "State Bags", "cats": ["Travel"]},
         {"id": "1171126742", "brand": "Stately Men", "cats": ["Mens Apparel"]},
@@ -3470,7 +3470,7 @@ def _build_creative_showcase(report: DomainAdReport) -> str:
         vid = v["id"]
         h_param = f'?h={v["h"]}&amp;' if v.get("h") else "?"
         embed_url = f'https://player.vimeo.com/video/{vid}{h_param}badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1'
-        thumb_url = f'https://vumbnail.com/{vid}.jpg'
+        thumb_url = v.get("thumb") or f'https://vumbnail.com/{vid}.jpg'
         brand = _esc(v["brand"])
         cat_str = ",".join(v["cats"])
         primary_cat = v["cats"][0]
