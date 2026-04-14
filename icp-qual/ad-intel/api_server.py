@@ -42,7 +42,7 @@ app = FastAPI(title="Upscale ICP Pipeline API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "https://demoupscale.com"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -478,7 +478,24 @@ async def regenerate_pitch(req: RegenPitchRequest):
         cfg_company = req.config.get("company_name", "")
         if cfg_company:
             # Try common domain patterns for the overridden company
-            for alt_domain in [f"{cfg_company.lower().replace(' ', '')}.com", f"{cfg_company.lower()}.com"]:
+            name_clean = cfg_company.lower().replace("'", "").replace("'", "")
+            # Generate candidate domains: full name, first word, no spaces, hyphenated
+            words = name_clean.split()
+            candidates = [
+                f"{name_clean.replace(' ', '')}.com",    # fridakids.com
+                f"{words[0]}.com",                       # frida.com
+                f"{'-'.join(words)}.com",                 # frida-kids.com
+            ]
+            if len(words) > 2:
+                candidates.append(f"{''.join(words[:2])}.com")
+            # Deduplicate while preserving order
+            seen = set()
+            alt_domains = []
+            for c in candidates:
+                if c not in seen:
+                    seen.add(c)
+                    alt_domains.append(c)
+            for alt_domain in alt_domains:
                 alt_path = REPORTS_DIR / f"{alt_domain}_report.json"
                 if alt_path.exists():
                     try:
@@ -507,6 +524,22 @@ async def regenerate_pitch(req: RegenPitchRequest):
                     except Exception as e:
                         logger.warning(f"Failed to load alt report {alt_domain}: {e}")
 
+        # ── Post-merge validation ──
+        if cfg_company:
+            # Verify the merge actually happened
+            merged_company = report.company_name or ""
+            if merged_company and cfg_company.lower() not in merged_company.lower() and merged_company.lower() not in cfg_company.lower():
+                logger.warning(f"MERGE VALIDATION: report.company_name='{merged_company}' "
+                               f"doesn't match config company_name='{cfg_company}' — merge may have failed. "
+                               f"Checked domains: {alt_domains if 'alt_domains' in dir() else 'unknown'}")
+            # Verify creative pipeline isn't from the base domain
+            if report.creative_pipeline and report.creative_pipeline.found:
+                script_preview = (report.creative_pipeline.script or "")[:200].lower()
+                base_brand = domain.replace(".com", "").replace(".net", "")
+                if base_brand.lower() in script_preview and cfg_company.lower() not in script_preview:
+                    logger.error(f"MERGE VALIDATION FAIL: Creative script still references base brand "
+                                 f"'{base_brand}' not '{cfg_company}' — data merge incomplete")
+
         fit = calculate_upscale_fit(report)
 
         # Build PitchConfig from request
@@ -516,7 +549,8 @@ async def regenerate_pitch(req: RegenPitchRequest):
         pitch_html, failed_sections = generate_pitch_report(report, fit, config=config)
 
         # Upload
-        resp = await upload_html_to_platform(pitch_html, f"{domain}_streaming_proposal.html")
+        upload_name = req.config.get("company_name", "").lower().replace(" ", "_") or domain
+        resp = await upload_html_to_platform(pitch_html, f"{upload_name}_streaming_proposal.html")
         if resp:
             pitch_url = resp["shareUrl"]
             # Update run data
