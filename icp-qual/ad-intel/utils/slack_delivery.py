@@ -50,6 +50,7 @@ def build_slack_messages(
     internal_url: str | None = None,
     pitch_url: str | None = None,
     call_tracker=None,
+    pitch_failed_sections: list[dict] | None = None,
 ) -> tuple[str, list[str]]:
     """Build the main message and thread detail messages.
 
@@ -256,6 +257,15 @@ def build_slack_messages(
 
     pitch_thread += "\n".join(pitch_details)
     thread_messages.append(pitch_thread)
+
+    # ── 5. Thread: Failed pitch sections (if any) ──
+    if pitch_failed_sections:
+        fail_lines = [f"• `{s['section']}` — {s['error']}" for s in pitch_failed_sections]
+        fail_thread = (
+            f":warning: *{len(pitch_failed_sections)} Pitch Section(s) Failed* — excluded from final report\n"
+            + "\n".join(fail_lines)
+        )
+        thread_messages.append(fail_thread)
 
     return main, thread_messages
 

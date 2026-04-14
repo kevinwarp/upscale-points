@@ -40,6 +40,7 @@ class PublishResult:
     fit_grade: str
     internal: PublishedReport | None = None
     pitch: PublishedReport | None = None
+    pitch_failed_sections: list[dict] | None = None
     error: str | None = None
 
 
@@ -105,24 +106,28 @@ async def publish_reports(
         fit_grade=fit.grade,
     )
 
-    # Generate HTML reports — each independently so one failure doesn't block the other
+    # Generate HTML reports — pitch first so we can surface failures in internal report
     internal_html = None
     pitch_html = None
-
-    try:
-        logger.info(f"Generating internal ICP report for {domain}...")
-        internal_html = generate_internal_report(report, fit)
-    except Exception as e:
-        logger.error(f"Internal report generation failed for {domain}: {e}")
-        result.error = f"Internal report generation failed: {e}"
+    pitch_failed_sections: list[dict] = []
 
     try:
         logger.info(f"Generating pitch report for {domain}...")
-        pitch_html = generate_pitch_report(report, fit)
+        pitch_html, pitch_failed_sections = generate_pitch_report(report, fit)
+        if pitch_failed_sections:
+            logger.warning(f"Pitch report had {len(pitch_failed_sections)} failed sections: "
+                           f"{[s['section'] for s in pitch_failed_sections]}")
     except Exception as e:
         logger.error(f"Pitch report generation failed for {domain}: {e}")
         err = f"Pitch report generation failed: {e}"
         result.error = f"{result.error}; {err}" if result.error else err
+
+    try:
+        logger.info(f"Generating internal ICP report for {domain}...")
+        internal_html = generate_internal_report(report, fit, pitch_failed_sections=pitch_failed_sections)
+    except Exception as e:
+        logger.error(f"Internal report generation failed for {domain}: {e}")
+        result.error = f"Internal report generation failed: {e}"
 
     # Save locally
     if save_local:
@@ -186,5 +191,8 @@ async def publish_reports(
                 result.error += f"; Pitch upload failed: {e}"
             else:
                 result.error = f"Pitch upload failed: {e}"
+
+    if pitch_failed_sections:
+        result.pitch_failed_sections = pitch_failed_sections
 
     return result

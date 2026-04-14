@@ -162,8 +162,13 @@ def _spend_strategy(intel: BrandIntelligence | None, budget: dict) -> dict:
         }
 
 
+_CAMPAIGN_START_OVERRIDE: datetime | None = None
+
+
 def _campaign_start_date() -> datetime:
-    """Return the Monday that is 2 weeks from today."""
+    """Return the configured start date, or the Monday that is 2 weeks from today."""
+    if _CAMPAIGN_START_OVERRIDE is not None:
+        return _CAMPAIGN_START_OVERRIDE
     today = datetime.now()
     # Days until next Monday (0=Mon … 6=Sun)
     days_until_monday = (7 - today.weekday()) % 7
@@ -174,27 +179,48 @@ def _campaign_start_date() -> datetime:
     return next_monday + timedelta(weeks=1)
 
 
+def _onboarding_date() -> datetime:
+    """Return onboarding date = 14 days BEFORE launch date."""
+    return _campaign_start_date() - timedelta(days=14)
+
+
 def _compute_daily_spend(budget_m1: float, strategy: dict) -> list[dict]:
-    """Compute 30-day daily spend schedule with ramp-up in week 1.
+    """Compute 30-day daily spend schedule for Month 1.
 
     Returns list of 30 dicts: {day, date, label, yt, ctv_rt, ctv_acq, total}
+    Ramp: Wk1 $600/day, Wk2 $800/day, Wk3 $1000/day,
+    remaining days (22-30) get whatever's left to hit budget_m1.
+    Sum of 30 days = budget_m1, avg = budget_m1/30.
     """
-    daily_target = budget_m1 / 30
+    avg = budget_m1 / 30  # target average (e.g. $1000 for $30K)
+
+    # Fixed ramp: 60%, 80%, 100% of avg, then remainder absorbs the rest
+    wk1_daily = avg * 0.60   # $600/day for $30K
+    wk2_daily = avg * 0.80   # $800/day for $30K
+    wk3_daily = avg * 1.00   # $1000/day for $30K
+    spent_first_21 = (wk1_daily * 7) + (wk2_daily * 7) + (wk3_daily * 7)
+    remaining_budget = budget_m1 - spent_first_21
+    remaining_days = 30 - 21  # 9 days
+    wk4_daily = remaining_budget / remaining_days  # ~$1244 for $30K
+
     start = _campaign_start_date()
     days = []
 
     for d in range(1, 31):
-        if d <= 7:
-            ramp = 0.30 + (0.70 * (d - 1) / 6)
-        else:
-            ramp = 1.0
-
-        daily = daily_target * ramp
         dt = start + timedelta(days=d - 1)
+        if d <= 7:
+            daily = wk1_daily
+        elif d <= 14:
+            daily = wk2_daily
+        elif d <= 21:
+            daily = wk3_daily
+        else:
+            daily = wk4_daily
+
         days.append({
             "day": d,
             "date": dt,
-            "label": dt.strftime("%b %d"),  # e.g. "Apr 28"
+            "label": dt.strftime("%b %d"),
             "yt": round(daily * strategy["yt_pct"]),
             "ctv_rt": round(daily * strategy["ctv_rt_pct"]),
             "ctv_acq": round(daily * strategy["ctv_acq_pct"]),
@@ -208,20 +234,40 @@ def _compute_weekly_spend(budget: dict, strategy: dict) -> list[dict]:
     """Compute 12-week spend schedule across 3 months.
 
     Returns list of 12 dicts: {week, start_date, label, yt, ctv_rt, ctv_acq, total}
+    Month 1 uses the same ramp as daily: Wk1=60%, Wk2=80%, Wk3=100%, Wk4=remainder.
+    Months 2 & 3 are flat (monthly / 4 per week).
+    Sum of 12 weeks = m1 + m2 + m3.
     """
-    monthly_budgets = [budget["m1"], budget["m2"], budget["m3"]]
+    m1, m2, m3 = budget["m1"], budget["m2"], budget["m3"]
+    avg_m1 = m1 / 30  # daily avg
+
+    # Month 1 weekly values (7 days each)
+    wk1 = avg_m1 * 0.60 * 7
+    wk2 = avg_m1 * 0.80 * 7
+    wk3 = avg_m1 * 1.00 * 7
+    wk4 = m1 - wk1 - wk2 - wk3  # remaining ~9 days compressed to 1 week slot
+    m1_weeks = [wk1, wk2, wk3, wk4]
+
+    # Months 2 & 3: flat
+    m2_weekly = m2 / 4
+    m3_weekly = m3 / 4
+
     start = _campaign_start_date()
     weeks = []
 
     for w in range(1, 13):
-        month_idx = min((w - 1) // 4, 2)
-        weekly = monthly_budgets[month_idx] / 4.33
+        if w <= 4:
+            weekly = m1_weeks[w - 1]
+        elif w <= 8:
+            weekly = m2_weekly
+        else:
+            weekly = m3_weekly
 
         week_start = start + timedelta(weeks=w - 1)
         weeks.append({
             "week": w,
             "start_date": week_start,
-            "label": f"Wk {w} ({week_start.strftime('%b %d')})",  # e.g. "Wk 1 (Apr 28)"
+            "label": f"Wk {w} ({week_start.strftime('%b %d')})",
             "yt": round(weekly * strategy["yt_pct"]),
             "ctv_rt": round(weekly * strategy["ctv_rt_pct"]),
             "ctv_acq": round(weekly * strategy["ctv_acq_pct"]),
@@ -550,6 +596,8 @@ class PitchConfig:
         include_ctv: bool | None = None,
         include_youtube: bool | None = None,
         campaign_start_date: str | None = None,
+        call_context: dict | None = None,  # personalization from call notes
+        showcase_video_urls: list | None = None,  # YouTube/Vimeo URLs for creative showcase
     ):
         self.company_name = company_name
         self.industry = industry
@@ -561,20 +609,150 @@ class PitchConfig:
         self.include_ctv = include_ctv
         self.include_youtube = include_youtube
         self.campaign_start_date = campaign_start_date
+        self.call_context = call_context
+        self.showcase_video_urls = showcase_video_urls
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if v is not None}
 
     @classmethod
     def from_dict(cls, d: dict) -> "PitchConfig":
-        return cls(**{k: v for k, v in d.items() if k in cls.__init__.__code__.co_varnames})
+        import logging as _cfg_log
+        _logger = _cfg_log.getLogger("pitch_config")
+
+        # Map common frontend field names to PitchConfig param names
+        aliases = {
+            "strategy": "strategy_tier",
+            "budget_month1": "monthly_budget_m1",
+            "budget_month2": "monthly_budget_m2",
+            "budget_month3": "monthly_budget_m3",
+        }
+        mapped = {}
+        for k, v in d.items():
+            key = aliases.get(k, k)
+            mapped[key] = v
+        valid = cls.__init__.__code__.co_varnames
+        dropped = {k for k in mapped if k not in valid}
+        if dropped:
+            _logger.warning(f"PitchConfig.from_dict dropped unknown keys: {dropped} — "
+                            f"add aliases or params if these should be mapped")
+        cfg = cls(**{k: v for k, v in mapped.items() if k in valid})
+
+        # ── Integrity checks: verify critical overrides were applied ──
+        if "strategy" in d or "strategy_tier" in d:
+            expected = d.get("strategy") or d.get("strategy_tier")
+            if cfg.strategy_tier != expected:
+                _logger.error(f"STRATEGY MISMATCH: config had '{expected}' but "
+                              f"PitchConfig.strategy_tier is '{cfg.strategy_tier}'")
+        for src_key, cfg_attr in [("budget_month1", "monthly_budget_m1"),
+                                   ("budget_month2", "monthly_budget_m2"),
+                                   ("budget_month3", "monthly_budget_m3")]:
+            if src_key in d:
+                actual = getattr(cfg, cfg_attr)
+                if actual != d[src_key]:
+                    _logger.error(f"BUDGET MISMATCH: config['{src_key}']={d[src_key]} "
+                                  f"but PitchConfig.{cfg_attr}={actual}")
+        return cfg
+
+
+def _validate_pitch_html(
+    html: str,
+    company: str,
+    base_domain: str,
+    budget: dict,
+    strategy: dict,
+    cfg: "PitchConfig",
+    failed_sections: list[dict],
+    logger,
+) -> None:
+    """Post-generation integrity checks. Logs errors for any violations.
+
+    These checks catch the class of bugs where config overrides silently
+    fail (wrong field names, missing aliases) or data merges don't fully
+    replace the base domain's content.
+    """
+    import re
+
+    tier = strategy.get("tier", "")
+    base_brand = base_domain.replace(".com", "").replace(".net", "").replace(".co", "")
+
+    # ── 1. YouTube-only must NOT contain CTV sections ──
+    if tier == "youtube_only":
+        ctv_markers = [
+            ('id="s-ctv"', "CTV Impact section present in youtube_only pitch"),
+            ('id="s-inventory"', "Premium Inventory section present in youtube_only pitch"),
+            ("Premium Streaming Inventory", "Premium Streaming Inventory text in youtube_only pitch"),
+        ]
+        for marker, msg in ctv_markers:
+            if marker in html:
+                logger.error(f"PITCH VALIDATION FAIL: {msg}")
+                failed_sections.append({"section": "_validation", "error": msg})
+
+    # ── 2. Budget values must match config overrides ──
+    if cfg.monthly_budget_m1 is not None:
+        expected_launch = _fmt_money(cfg.monthly_budget_m1)
+        # Check the hero section for the launch budget stat
+        hero_match = re.search(r'Launch Budget</div>\s*</div>', html)
+        if hero_match:
+            # Look backwards for the budget value
+            hero_area = html[max(0, hero_match.start() - 200):hero_match.start()]
+            if expected_launch not in hero_area:
+                logger.error(f"PITCH VALIDATION FAIL: Launch Budget should be {expected_launch} "
+                             f"but hero area shows: {hero_area[-80:]}")
+                failed_sections.append({"section": "_validation",
+                                        "error": f"Launch Budget mismatch — expected {expected_launch}"})
+
+    expected_total = _fmt_money(budget["m1"] + budget["m2"] + budget["m3"])
+    total_match = re.search(r'Total Spend</div>\s*</div>', html)
+    if total_match:
+        total_area = html[max(0, total_match.start() - 200):total_match.start()]
+        if expected_total not in total_area:
+            logger.error(f"PITCH VALIDATION FAIL: Total Spend should be {expected_total}")
+            failed_sections.append({"section": "_validation",
+                                    "error": f"Total Spend mismatch — expected {expected_total}"})
+
+    # ── 3. Company name override: base domain brand should not appear ──
+    if cfg.company_name and base_brand.lower() not in cfg.company_name.lower():
+        # The base domain brand (e.g., "Bond No. 9") should not appear in key sections
+        # Only check the main content, skip footer/meta/scripts
+        body_match = re.search(r'<body[^>]*>(.*)</body>', html, re.DOTALL)
+        body = body_match.group(1) if body_match else html
+        # Remove HTML comments
+        body_clean = re.sub(r'<!--.*?-->', '', body, flags=re.DOTALL)
+        # Check for base brand name (case-insensitive, with common variations)
+        brand_variations = [base_brand]
+        # "bondno9" → also check "Bond No. 9", "Bond No 9"
+        if len(base_brand) > 4:
+            brand_variations.append(base_brand.replace("no", " No. ").strip())
+            brand_variations.append(base_brand.replace("no", " No ").strip())
+        for variant in brand_variations:
+            if len(variant) < 4:
+                continue
+            occurrences = len(re.findall(re.escape(variant), body_clean, re.IGNORECASE))
+            if occurrences > 0:
+                logger.error(f"PITCH VALIDATION FAIL: Base domain brand '{variant}' appears "
+                             f"{occurrences}x in pitch for '{cfg.company_name}' — data merge may be incomplete")
+                failed_sections.append({"section": "_validation",
+                                        "error": f"Base brand '{variant}' leaked into pitch ({occurrences} occurrences)"})
+                break  # One warning is enough
+
+    # ── 4. YouTube channels section should exist for youtube_only ──
+    if tier == "youtube_only" and 'id="s-yt-channels"' not in html:
+        logger.warning("PITCH VALIDATION WARN: youtube_only pitch missing recommended channels section")
+
+    # ── 5. Filename / title should use overridden company name ──
+    if cfg.company_name:
+        title_match = re.search(r'<title>(.*?)</title>', html)
+        if title_match and cfg.company_name not in title_match.group(1):
+            logger.warning(f"PITCH VALIDATION WARN: <title> doesn't contain '{cfg.company_name}': "
+                           f"{title_match.group(1)}")
 
 
 def generate_pitch_report(
     report: DomainAdReport,
     fit: UpscaleFitResult,
     config: PitchConfig | None = None,
-) -> str:
+) -> tuple[str, list[dict]]:
     """Generate the external-facing pitch HTML."""
     cfg = config or PitchConfig()
     e = report.enrichment
@@ -596,6 +774,16 @@ def generate_pitch_report(
         budget["m3"] = cfg.monthly_budget_m3
     budget["daily"] = round(budget["m1"] / 30)
 
+    # Apply campaign start date override
+    global _CAMPAIGN_START_OVERRIDE
+    if cfg.campaign_start_date:
+        try:
+            _CAMPAIGN_START_OVERRIDE = datetime.strptime(cfg.campaign_start_date, "%Y-%m-%d")
+        except ValueError:
+            _CAMPAIGN_START_OVERRIDE = None
+    else:
+        _CAMPAIGN_START_OVERRIDE = None
+
     has_shopify = _detect_shopify(report)
     has_klaviyo = _detect_klaviyo(report)
 
@@ -607,23 +795,32 @@ def generate_pitch_report(
     # Determine spend strategy based on annual ad spend tier
     strategy = _spend_strategy(intel, budget)
 
-    # Apply strategy tier override from config
+    # Apply strategy tier override from config — must also update pct splits
     if cfg.strategy_tier and cfg.strategy_tier in ("youtube_only", "ctv_led", "full_funnel"):
+        _TIER_SPLITS = {
+            "youtube_only": {"yt_pct": 1.0, "ctv_rt_pct": 0.0, "ctv_acq_pct": 0.0},
+            "ctv_led": {"yt_pct": 0.30, "ctv_rt_pct": 0.28, "ctv_acq_pct": 0.42},
+            "full_funnel": {"yt_pct": 0.25, "ctv_rt_pct": 0.15, "ctv_acq_pct": 0.60},
+        }
         strategy["tier"] = cfg.strategy_tier
+        strategy.update(_TIER_SPLITS[cfg.strategy_tier])
 
     # Build sections — each wrapped so one failure doesn't kill the report
     import logging as _log
     _plog = _log.getLogger("pitch_report")
+    _failed_sections: list[dict] = []
 
     def _safe(name, fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)
         except Exception as exc:
             _plog.warning(f"Pitch section '{name}' failed: {exc}")
-            return f'<!-- section {name} failed: {_esc(str(exc))} -->'
+            _failed_sections.append({"section": name, "error": str(exc)})
+            return ""  # silently exclude from pitch
 
-    hero = _safe("hero", _build_hero, company, domain, industry, description, logo_html, budget, strategy)
-    exec_summary = _safe("exec_summary", _build_exec_summary, company, report, budget, intel, has_shopify, has_klaviyo, strategy)
+    call_ctx = cfg.call_context or {}
+    hero = _safe("hero", _build_hero, company, domain, industry, description, logo_html, budget, strategy, call_ctx)
+    exec_summary = _safe("exec_summary", _build_exec_summary, company, report, budget, intel, has_shopify, has_klaviyo, strategy, call_ctx)
     toc = _safe("toc", _build_toc, company, report, intel, strategy)
     problem = _safe("problem", _build_problem, company, report, budget)
     overview = _safe("overview", _build_overview, company, budget, monthly_rev, intel, strategy)
@@ -651,13 +848,17 @@ def generate_pitch_report(
     creative_preview = _safe("creative_preview", _build_creative_preview, company, report)
     audio_demos = _safe("audio_demos", _build_audio_demos, company, report)
     creative_showcase = _safe("creative_showcase", _build_creative_showcase, report)
+    video_showcase = _safe("video_showcase", _build_video_showcase, company, cfg.showcase_video_urls) if cfg.showcase_video_urls else ""
     ad_discovery_video = _safe("ad_discovery_video", _build_ad_discovery_video, company, report)
     inventory = "" if strategy["tier"] == "youtube_only" else _safe("inventory", _build_inventory)
     next_steps = _safe("next_steps", _build_next_steps, company, budget)
+    call_personalization = _safe("call_personalization", _build_call_personalization, company, call_ctx) if call_ctx else ""
+    yt_channels = _safe("yt_channels", _build_recommended_yt_channels, company, call_ctx) if (call_ctx.get("recommended_channels") or strategy["tier"] == "youtube_only") else ""
+    yt_shopify_panel = _safe("yt_shopify_panel", _build_youtube_shopify_panel, company) if strategy["tier"] == "youtube_only" else ""
 
     generated = datetime.utcnow().strftime("%B %d, %Y")
 
-    return f"""<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -853,6 +1054,11 @@ body {{
 }}
 .section.dark .section-sub {{ color: rgba(255,255,255,.6); }}
 .section.dark h2 {{ color: white; }}
+
+/* Appendix collapsible sections */
+.appendix-section summary::-webkit-details-marker {{ display: none; }}
+.appendix-section[open] summary span:first-child {{ transform: rotate(90deg); }}
+.appendix-section summary:hover {{ background: var(--bg); }}
 
 /* Cards grid */
 .grid-3 {{
@@ -1488,7 +1694,7 @@ details.collapsible > .collapse-content {{
 .showcase-filter {{ padding: 7px 18px; border-radius: 100px; border: 1px solid var(--border); background: white; font-size: .8rem; font-weight: 600; color: var(--navy); cursor: pointer; transition: all .15s; font-family: inherit; }}
 .showcase-filter:hover {{ border-color: var(--pink); color: var(--pink); }}
 .showcase-filter.active {{ background: var(--navy); color: white; border-color: var(--navy); }}
-.showcase-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1080px; margin: 0 auto; padding: 0 40px; }}
+.showcase-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 1080px; margin: 0 auto; padding: 0 40px; }}
 .showcase-card {{ position: relative; border-radius: 14px; overflow: hidden; cursor: pointer; background: #000; aspect-ratio: 16/9; }}
 .showcase-card[data-cats] {{ }}
 .showcase-card.hidden {{ display: none; }}
@@ -1663,28 +1869,70 @@ details.collapsible > .collapse-content {{
   {toc}
   <div id="s-spend-plan">{spend_charts}</div>
   <div id="s-campaign">{campaign_plan}</div>
+  {roi_projection}
+  <div id="s-youtube">{youtube_impact}</div>
+  <div id="s-call-context">{call_personalization}</div>
+  <div id="s-yt-channels">{yt_channels}</div>
+  <div id="s-video-showcase">{video_showcase}</div>
+  {f'<div id="s-ctv">{ctv_impact}</div>' if ctv_impact else ''}
   <div id="s-overview">{overview}</div>
   <div id="s-creative">{creative_system}</div>
+  <div id="s-showcase">{creative_showcase}</div>
   {creative_preview}
   {audio_demos}
-  <div id="s-showcase">{creative_showcase}</div>
-  {roi_projection}
-  <div id="s-snapshot">{company_snapshot}</div>
-  {ad_discovery_video}
-  <div id="s-why-brand">{why_brand}</div>
-  <div id="s-problem">{problem}</div>
-  {objection_killer}
-  <div id="s-audience">{audience_strategy}</div>
-  <div id="s-integration">{integration}</div>
-  <div id="s-platform">{platform}</div>
-  <div id="s-ctv">{ctv_impact}</div>
-  <div id="s-youtube">{youtube_impact}</div>
-  <div id="s-optimization">{optimization}</div>
-  <div id="s-attribution">{attribution}</div>
-  <div id="s-competitive">{competitive}</div>
   <div id="s-results">{results}</div>
-  <div id="s-inventory">{inventory}</div>
   <div id="s-next-steps">{next_steps}</div>
+
+  <!-- ═══ APPENDIX ═══ -->
+  <div id="s-appendix" style="text-align:center;padding:48px 40px 16px;border-top:2px solid var(--border);margin-top:32px">
+    <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);font-weight:700;margin-bottom:6px">Appendix</div>
+    <h2 style="font-size:1.4rem;margin:0;color:var(--navy)">Supporting Details</h2>
+    <p style="font-size:.84rem;color:var(--muted);margin-top:6px">Click any section to expand.</p>
+  </div>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Company Snapshot</summary><div style="padding:0 8px 16px">
+  <div id="s-snapshot">{company_snapshot}</div>
+  </div></details>
+
+<details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Why {company}</summary><div style="padding:0 8px 16px">
+  <div id="s-why-brand">{why_brand}</div>
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> The Problem</summary><div style="padding:0 8px 16px">
+  <div id="s-problem">{problem}</div>
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Myth vs. Reality</summary><div style="padding:0 8px 16px">
+  {objection_killer}
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Audience Strategy</summary><div style="padding:0 8px 16px">
+  <div id="s-audience">{audience_strategy}</div>
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Integration</summary><div style="padding:0 8px 16px">
+  <div id="s-integration">{integration}</div>
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Platform</summary><div style="padding:0 8px 16px">
+  <div id="s-platform">{platform}</div>
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Real-Time Optimization</summary><div style="padding:0 8px 16px">
+  <div id="s-optimization">{optimization}</div>
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Attribution System</summary><div style="padding:0 8px 16px">
+  <div id="s-attribution">{attribution}</div>
+  </div></details>
+
+  <details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Competitive Landscape</summary><div style="padding:0 8px 16px">
+  <div id="s-competitive">{competitive}</div>
+  </div></details>
+
+  {f'<details class="appendix-section"><summary style="cursor:pointer;padding:16px 24px;background:white;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-weight:700;font-size:.95rem;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px"><span style="transition:transform .2s;display:inline-block">&#x25B6;</span> Streaming Inventory</summary><div style="padding:0 8px 16px"><div id="s-inventory">{inventory}</div></div></details>' if inventory else ''}
+
+  <div id="s-yt-shopify">{yt_shopify_panel}</div>
 
   <footer class="site-footer">
     <div class="footer-cta">
@@ -1726,6 +1974,11 @@ details.collapsible > .collapse-content {{
 </body>
 </html>"""
 
+    # ── Post-generation integrity checks ──────────────────────────
+    _validate_pitch_html(html, company, domain, budget, strategy, cfg, _failed_sections, _plog)
+
+    return html, _failed_sections
+
 
 # ---------------------------------------------------------------------------
 # Section builders
@@ -1734,51 +1987,64 @@ details.collapsible > .collapse-content {{
 def _build_exec_summary(
     company: str, report: DomainAdReport, budget: dict,
     intel: BrandIntelligence | None, has_shopify: bool, has_klaviyo: bool,
-    strategy: dict | None = None,
+    strategy: dict | None = None, call_ctx: dict | None = None,
 ) -> str:
     """Build an executive summary section at the top of the proposal."""
+    ctx = call_ctx or {}
     e = report.enrichment
     mix = report.channel_mix
 
-    # Revenue context
-    rev_line = ""
-    if e and e.estimated_annual_revenue:
-        rev_line = f" With an estimated {_fmt_money(e.estimated_annual_revenue)}/yr in DTC revenue,"
+    # If call context provides a custom exec summary, use it
+    if ctx.get("exec_summary"):
+        custom_summary = ctx["exec_summary"]
+    else:
+        # Revenue context
+        rev_line = ""
+        if e and e.estimated_annual_revenue:
+            rev_line = f" With an estimated {_fmt_money(e.estimated_annual_revenue)}/yr in DTC revenue,"
 
-    # Channel gap — customize based on strategy
-    channel_gap = ""
-    if strategy and strategy["tier"] == "youtube_only":
-        channel_gap = " — YouTube is the highest-ROI streaming channel at this spend level"
-    elif not mix.has_linear:
-        channel_gap = " — yet you're not on streaming TV, where 47% of all viewing now happens"
-    elif mix.has_meta and mix.has_youtube:
-        channel_gap = " across Meta and YouTube"
-
-    # Integration advantage
-    integration_note = ""
-    if has_shopify and has_klaviyo:
-        integration_note = " Your Shopify + Klaviyo stack connects natively for first-party attribution and audience sync."
-    elif has_shopify:
-        integration_note = " Your Shopify store connects directly for purchase-level attribution."
-
-    # Spend context
-    spend_note = ""
-    if intel and intel.spend_estimate:
-        s = intel.spend_estimate
+        # Channel gap — customize based on strategy
+        channel_gap = ""
         if strategy and strategy["tier"] == "youtube_only":
-            spend_note = f" We estimate ~{_fmt_money(s.estimated_monthly_ad_spend)}/mo in total ad spend."
-        else:
-            spend_note = f" We estimate ~{_fmt_money(s.estimated_monthly_ad_spend)}/mo in total ad spend — a CTV test at {_fmt_money(s.recommended_ctv_test)}/mo would be {s.recommended_ctv_pct}% of that."
+            channel_gap = " — YouTube is the highest-ROI streaming channel at this spend level"
+        elif not mix.has_linear:
+            channel_gap = " — yet you're not on streaming TV, where 47% of all viewing now happens"
+        elif mix.has_meta and mix.has_youtube:
+            channel_gap = " across Meta and YouTube"
+
+        # Integration advantage
+        integration_note = ""
+        if has_shopify and has_klaviyo:
+            integration_note = " Your Shopify + Klaviyo stack connects natively for first-party attribution and audience sync."
+        elif has_shopify:
+            integration_note = " Your Shopify store connects directly for purchase-level attribution."
+
+        # Spend context
+        spend_note = ""
+        if intel and intel.spend_estimate:
+            s = intel.spend_estimate
+            if strategy and strategy["tier"] == "youtube_only":
+                spend_note = f" We estimate ~{_fmt_money(s.estimated_monthly_ad_spend)}/mo in total ad spend."
+            else:
+                spend_note = f" We estimate ~{_fmt_money(s.estimated_monthly_ad_spend)}/mo in total ad spend — a CTV test at {_fmt_money(s.recommended_ctv_test)}/mo would be {s.recommended_ctv_pct}% of that."
+
+        onboard_date = _onboarding_date().strftime("%B %d, %Y")
+        custom_summary = (
+            f"{company} is a strong fit for Upscale's streaming TV + YouTube platform.{rev_line} you're actively advertising{channel_gap}.{integration_note}{spend_note} "
+            f"This proposal outlines a {_fmt_money(budget['m1'])}/mo launch plan with $0 monthly management fee, AI-generated creative included, and built-in attribution — onboarding begins {onboard_date}."
+        )
 
     # Build KPI strip
     total_3mo = budget["m1"] + budget["m2"] + budget["m3"]
-    ctv_3mo = int(total_3mo * 0.6)
-    yt_3mo = int(total_3mo * 0.4)
+    onboard_date = _onboarding_date().strftime("%b %d")
     kpis = []
     kpis.append((_fmt_money(budget["m1"]), "Month 1 Launch Spend"))
-    kpis.append((_fmt_money(total_3mo), "Proposed Spend — 3-Month Total"))
-    kpis.append((_fmt_money(ctv_3mo), "CTV Spend"))
-    kpis.append((_fmt_money(yt_3mo), "YouTube Spend"))
+    kpis.append((_fmt_money(total_3mo), "3-Month Total"))
+    kpis.append((onboard_date, "Onboarding"))
+    if strategy and strategy["tier"] == "youtube_only":
+        kpis.append((_fmt_money(total_3mo), "YouTube Spend"))
+    else:
+        kpis.append((_fmt_money(int(total_3mo * 0.4)), "YouTube Spend"))
 
     kpi_html = "".join(
         f'<div class="exec-kpi"><div class="val">{v}</div><div class="lbl">{l}</div></div>'
@@ -1788,8 +2054,7 @@ def _build_exec_summary(
     return f"""<div class="exec-summary">
   <h2 style="font-size:1.3rem;margin-bottom:8px">Executive Summary</h2>
   <p style="font-size:.95rem;color:#475467;line-height:1.7;max-width:800px">
-    {company} is a strong fit for Upscale's streaming TV + YouTube platform.{rev_line} you're actively advertising{channel_gap}.{integration_note}{spend_note}
-    This proposal outlines a {_fmt_money(budget['m1'])}/mo launch plan with $0 monthly management fee, AI-generated creative included, and built-in attribution — live in 14 days.
+    {custom_summary}
   </p>
   <div class="exec-kpi-strip">{kpi_html}</div>
 </div>"""
@@ -1801,36 +2066,31 @@ def _build_toc(company: str, report: DomainAdReport, intel: BrandIntelligence | 
     tier = strategy["tier"] if strategy else "full_funnel"
 
     sections = [
+        ("s-spend-plan", "Spend Plan"),
+        ("s-campaign", "3-Month Plan"),
+        ("s-roi", "ROI Projection"),
+        ("s-youtube", "YouTube Opportunity"),
+        ("s-showcase", "Creative Showcase"),
+    ]
+    if tier != "youtube_only":
+        sections.append(("s-ctv", "CTV Impact"))
+    sections.extend([
+        ("s-overview", "Campaign Overview"),
+        ("s-creative", "Creative System"),
+        ("s-results", "Proven Results"),
+        ("s-next-steps", "Next Steps"),
         ("s-snapshot", "Company Profile"),
         ("s-why-brand", f"Why {company}"),
         ("s-problem", "The Problem"),
         ("s-myths", "Myth vs. Reality"),
-        ("s-overview", "Campaign Overview"),
         ("s-audience", "Audience Strategy"),
-        ("s-creative", "Creative System"),
-        ("s-spend-plan", "Spend Plan"),
-        ("s-roi", "ROI Projection"),
-        ("s-campaign", "3-Month Plan"),
-    ]
-
-    # Only include CTV section if not YouTube-only
-    if tier != "youtube_only":
-        sections.append(("s-ctv", "CTV Impact"))
-
-    sections.extend([
-        ("s-youtube", "YouTube Opportunity"),
         ("s-optimization", "Real-Time Optimization"),
         ("s-attribution", "Attribution System"),
     ])
-
     if intel and intel.competitors:
         sections.append(("s-competitive", "Competitive Landscape"))
-
-    sections.extend([
-        ("s-results", "Proven Results"),
-        ("s-inventory", "Streaming Inventory"),
-        ("s-next-steps", "Next Steps"),
-    ])
+    if tier != "youtube_only":
+        sections.append(("s-inventory", "Streaming Inventory"))
 
     items = "".join(
         f'<a href="#{anchor}" class="toc-item"><span class="toc-num">{i+1:02d}</span> {label}</a>'
@@ -2112,30 +2372,38 @@ def _build_company_snapshot(company: str, report: DomainAdReport, intel: BrandIn
 </div>"""
 
 
-def _build_hero(company, domain, industry, description, logo_html, budget, strategy: dict | None = None) -> str:
-    # Customize headline based on strategy tier
-    if strategy and strategy["tier"] == "youtube_only":
+def _build_hero(company, domain, industry, description, logo_html, budget, strategy: dict | None = None, call_ctx: dict | None = None) -> str:
+    ctx = call_ctx or {}
+    product_name = ctx.get("product_name", company)
+    launch_tagline = ctx.get("launch_tagline", "")
+
+    # Customize headline based on call context or strategy tier
+    if launch_tagline:
+        headline = f'<span class="highlight">{product_name}</span> {launch_tagline}'
+    elif strategy and strategy["tier"] == "youtube_only":
         headline = f'Upscale Can Help <span class="highlight">{company}</span> Scale Performance Across YouTube'
-        eyebrow = "AI Creative + Media + Measurement — One Platform"
     elif strategy and strategy["tier"] == "ctv_led":
         headline = f'Upscale Can Help <span class="highlight">{company}</span> Scale Performance Across Streaming TV'
-        eyebrow = "AI Creative + Media + Measurement — One Platform"
     else:
-        headline = f'Upscale Can Help <span class="highlight">{company}</span> Scale Performance Across Streaming (CTV) & YouTube'
-        eyebrow = "AI Creative + Media + Measurement — One Platform"
+        headline = f'Upscale Can Help <span class="highlight">{company}</span> Scale Performance Across Streaming (CTV) &amp; YouTube'
+
+    eyebrow = ctx.get("eyebrow", "AI Creative + Media + Measurement — One Platform")
 
     # Strategy-specific stat
     streaming_stat = '<div class="hero-stat"><div class="num">&#x1f4fa;</div><div class="lbl">Streaming is the Future of TV</div></div>'
+    launch_date_str = _campaign_start_date().strftime("%B %d")
     if strategy and strategy["tier"] == "youtube_only":
-        streaming_stat = '<div class="hero-stat"><div class="num">2.7B</div><div class="lbl">YouTube MAU</div></div>'
+        streaming_stat = f'<div class="hero-stat"><div class="num">{launch_date_str}</div><div class="lbl">Launch Date</div></div>'
 
+    onboard_date = _onboarding_date().strftime("%B %d")
     return f"""<div class="hero">
   <span class="hero-eyebrow">{eyebrow}</span>
   {logo_html}
   <h1>{headline}</h1>
   <div class="hero-stats">
     <div class="hero-stat"><div class="num">{_fmt_money(budget['m1'])}</div><div class="lbl">Launch Budget</div></div>
-    <div class="hero-stat"><div class="num">14 days</div><div class="lbl">To Launch</div></div>
+    <div class="hero-stat"><div class="num">{_fmt_money(budget['m1'] + budget['m2'] + budget['m3'])}</div><div class="lbl">Total Spend</div></div>
+    <div class="hero-stat"><div class="num">{onboard_date}</div><div class="lbl">Onboarding</div></div>
     {streaming_stat}
   </div>
 </div>"""
@@ -2224,8 +2492,7 @@ def _build_overview(company, budget, monthly_rev, intel: BrandIntelligence | Non
     spend_context = ""
 
     if monthly_rev:
-        pct = round(budget["m1"] / monthly_rev * 100, 1)
-        rev_context = f" This represents approximately {pct}% of current monthly DTC revenue."
+        rev_context = ""  # removed — don't disclose revenue % in pitch
 
     # Strategy-specific channel description
     channel_desc = "CTV and YouTube"
@@ -2326,21 +2593,21 @@ def _build_platform() -> str:
   <p class="section-sub">Three integrated systems that work together — not three separate vendors you have to manage.</p>
   <div class="grid-3">
     <div class="card">
-      <div class="stat-big" style="font-size:1.4rem">Creative</div>
+      <div class="stat-big">Creative</div>
       <div class="stat-label">Included in CTV Campaign</div>
-      <h3 style="margin-top:16px">Creative as a System</h3>
+      <h3 style="margin-top:16px;font-size:1rem">Creative as a System</h3>
       <p>Always-on performance creative engine that generates 2-20+ variations per month. From brief to first ad in <strong>6 days</strong> — vs. 6-7 weeks with traditional production. $500 per creative vs. $10,000+ industry average.</p>
     </div>
     <div class="card">
       <div class="stat-big">1st</div>
       <div class="stat-label">Party Data ML</div>
-      <h3 style="margin-top:16px">Purchase-Optimized Targeting</h3>
+      <h3 style="margin-top:16px;font-size:1rem">Purchase-Optimized Targeting</h3>
       <p>ML models trained on your Shopify first-party purchase data — not generic demographic reach. Optimizes toward actual views, sign-ups, and purchases across Streaming TV + YouTube simultaneously.</p>
     </div>
     <div class="card">
       <div class="stat-big">Built-in</div>
       <div class="stat-label">Not an add-on</div>
-      <h3 style="margin-top:16px">Measurement & Incrementality</h3>
+      <h3 style="margin-top:16px;font-size:1rem">Measurement & Incrementality</h3>
       <p>Attribution + incrementality testing is native to the platform. Path-to-purchase mapping with clear attribution windows: 3-day full credit, 4-day partial, 7-day max. No third-party measurement tool required.</p>
     </div>
   </div>
@@ -2420,7 +2687,7 @@ def _build_creative_system(company, report: DomainAdReport, budget: dict | None 
       <div style="position:absolute;top:236px;right:-12px;text-align:center;background:var(--teal-light);border-radius:12px;padding:10px 14px;min-width:108px;border:1.5px solid var(--teal)">
         <div style="font-size:1.1rem;font-weight:800;color:var(--teal)">03</div>
         <div style="font-size:.72rem;font-weight:600;color:var(--navy)">Generate</div>
-        <div style="font-size:.62rem;color:var(--muted)">16:9, 9:16, 6s</div>
+        <div style="font-size:.62rem;color:var(--muted)">16:9, 9:16</div>
       </div>
       <!-- 04 Evaluate — bottom-right -->
       <div style="position:absolute;bottom:72px;right:28px;text-align:center;background:var(--pink-light);border-radius:12px;padding:10px 14px;min-width:108px;border:2px solid var(--pink)">
@@ -2474,8 +2741,7 @@ def _build_creative_system(company, report: DomainAdReport, budget: dict | None 
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         <span style="padding:4px 12px;border-radius:6px;font-size:.75rem;font-weight:600;background:var(--teal-light);color:var(--teal);border:1px solid var(--teal)">16:9 CTV &amp; In-Stream</span>
         <span style="padding:4px 12px;border-radius:6px;font-size:.75rem;font-weight:600;background:var(--pink-light);color:var(--pink);border:1px solid var(--pink)">9:16 YouTube Shorts</span>
-        <span style="padding:4px 12px;border-radius:6px;font-size:.75rem;font-weight:600;background:#E8EDF0;color:var(--navy);border:1px solid var(--navy)">6s Bumper Ads</span>
-        <span style="padding:4px 12px;border-radius:6px;font-size:.75rem;font-weight:600;background:#FEF3C7;color:#92400E;border:1px solid #D97706">15s Non-Skip</span>
+        <span style="padding:4px 12px;border-radius:6px;font-size:.75rem;font-weight:600;background:#FEF3C7;color:#92400E;border:1px solid #D97706">15s Skippable</span>
         <span style="padding:4px 12px;border-radius:6px;font-size:.75rem;font-weight:600;background:#ECFDF5;color:var(--success);border:1px solid var(--success)">30s Lean-Back TV</span>
       </div>
     </div>
@@ -2513,18 +2779,14 @@ def _build_creative_system(company, report: DomainAdReport, budget: dict | None 
           <div style="font-size:.6rem;color:var(--muted)">16:9</div>
         </div>
         <div style="background:white;border:1px solid #E5E7EB;border-radius:6px;padding:8px;margin-bottom:6px;border-left:3px solid var(--teal)">
-          <div style="font-size:.7rem;font-weight:600;color:var(--navy)">Perf. 15s Non-Skip</div>
+          <div style="font-size:.7rem;font-weight:600;color:var(--navy)">Perf. 15s Skippable</div>
           <div style="font-size:.6rem;color:var(--muted)">16:9</div>
         </div>
         <div style="background:white;border:1px solid #E5E7EB;border-radius:6px;padding:8px;margin-bottom:6px;border-left:3px solid var(--pink)">
           <div style="font-size:.7rem;font-weight:600;color:var(--navy)">UGC Short</div>
           <div style="font-size:.6rem;color:var(--muted)">9:16</div>
         </div>
-        <div style="background:white;border:1px solid #E5E7EB;border-radius:6px;padding:8px;border-left:3px solid var(--teal)">
-          <div style="font-size:.7rem;font-weight:600;color:var(--navy)">Bumper 6s</div>
-          <div style="font-size:.6rem;color:var(--muted)">16:9</div>
-        </div>
-        <div style="text-align:center;margin-top:8px;font-size:1rem;font-weight:800;color:var(--teal)">4</div>
+        <div style="text-align:center;margin-top:8px;font-size:1rem;font-weight:800;color:var(--teal)">3</div>
       </div>
       <!-- Sprint 2: Wk 3-4 -->
       <div style="background:#F8FAFB;border-radius:10px;padding:10px;min-width:120px">
@@ -2541,11 +2803,7 @@ def _build_creative_system(company, report: DomainAdReport, budget: dict | None 
           <div style="font-size:.7rem;font-weight:600;color:var(--navy)">UGC Testimonial</div>
           <div style="font-size:.6rem;color:var(--muted)">9:16</div>
         </div>
-        <div style="background:white;border:1px solid #E5E7EB;border-radius:6px;padding:8px;border-left:3px solid var(--teal)">
-          <div style="font-size:.7rem;font-weight:600;color:var(--navy)">Bumper Var.</div>
-          <div style="font-size:.6rem;color:var(--muted)">6s</div>
-        </div>
-        <div style="text-align:center;margin-top:8px;font-size:1rem;font-weight:800;color:var(--teal)">+4</div>
+        <div style="text-align:center;margin-top:8px;font-size:1rem;font-weight:800;color:var(--teal)">+3</div>
       </div>
       <!-- Sprint 3: Wk 5-6 -->
       <div style="background:#F8FAFB;border-radius:10px;padding:10px;min-width:120px">
@@ -2603,7 +2861,7 @@ def _build_creative_system(company, report: DomainAdReport, budget: dict | None 
         <div style="font-size:.65rem;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;text-align:center">Wk 11-12</div>
         <div style="background:white;border:1px solid #E5E7EB;border-radius:6px;padding:8px;margin-bottom:6px;border-left:3px solid #D97706">
           <div style="font-size:.7rem;font-weight:600;color:var(--navy)">Event: BFCM Prep</div>
-          <div style="font-size:.6rem;color:var(--muted)">30s + 15s + 6s</div>
+          <div style="font-size:.6rem;color:var(--muted)">30s + 15s</div>
         </div>
         <div style="background:white;border:1px solid #E5E7EB;border-radius:6px;padding:8px;margin-bottom:6px;border-left:3px solid var(--teal)">
           <div style="font-size:.7rem;font-weight:600;color:var(--navy)">Perf. Best-Of</div>
@@ -2622,8 +2880,7 @@ def _build_creative_system(company, report: DomainAdReport, budget: dict | None 
   <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
     <span style="background:var(--navy);color:white;padding:6px 16px;border-radius:999px;font-size:.78rem;font-weight:600">16:9 CTV &amp; In-Stream</span>
     <span style="background:var(--navy);color:white;padding:6px 16px;border-radius:999px;font-size:.78rem;font-weight:600">9:16 YouTube Shorts</span>
-    <span style="background:var(--navy);color:white;padding:6px 16px;border-radius:999px;font-size:.78rem;font-weight:600">6s Bumper Ads</span>
-    <span style="background:var(--navy);color:white;padding:6px 16px;border-radius:999px;font-size:.78rem;font-weight:600">15s Non-Skip</span>
+    <span style="background:var(--navy);color:white;padding:6px 16px;border-radius:999px;font-size:.78rem;font-weight:600">15s Skippable</span>
     <span style="background:var(--navy);color:white;padding:6px 16px;border-radius:999px;font-size:.78rem;font-weight:600">30s Lean-Back TV</span>
   </div>
 
@@ -2653,6 +2910,8 @@ def _md_to_html(text: str) -> str:
     text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<em>\1</em>', text)
     # Inline code: `text`
     text = re.sub(r'`(.+?)`', r'<code style="background:rgba(0,0,0,.06);padding:1px 4px;border-radius:3px;font-size:.8em">\1</code>', text)
+    # Strip any remaining orphaned ** markers
+    text = text.replace('**', '')
     return text
 
 
@@ -2726,14 +2985,14 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
                 if current_data["title"]:
                     scenes.append(dict(current_data))
                 current_data = {"title": "", "duration": "", "visual": [], "vo": [], "copy": [], "notes": [], "other": []}
-                title = line.lstrip("#* ").strip().rstrip("*")
+                title = line.lstrip("#* ").strip().strip("* ").replace("**", "").strip()
                 current_data["title"] = title
                 current_section = "other"
                 continue
 
             # Detect duration
             if line.upper().startswith("**DURATION:") or line.upper().startswith("DURATION:"):
-                dur = line.split(":", 1)[1].strip().rstrip("*")
+                dur = line.split(":", 1)[1].strip().strip("* ").replace("**", "").strip()
                 current_data["duration"] = dur
                 continue
 
@@ -2763,7 +3022,11 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
 
             # Add content to current section
             clean = line.lstrip("*- ").strip().rstrip("*")
-            if clean and clean not in ("(None)", "(None, visuals tell the story.)", "(None in this scene, allowing visuals to dominate. Critical elements within 95% safe zone.)"):
+            # Strip timestamp prefixes like "0-3s:", "(25-27s)", "25-27s:**"
+            clean = re.sub(r'^\(?\d{1,3}-?\d{0,3}s\)?:?\s*\**\s*', '', clean).strip()
+            # Strip stray markdown bold markers
+            clean = re.sub(r'\*\*', '', clean).strip()
+            if clean and clean.lower() not in ("(none)", "(none, visuals tell the story.)", "(none in this scene, allowing visuals to dominate. critical elements within 95% safe zone.)", "none"):
                 if current_section == "visual":
                     current_data["visual"].append(clean)
                 elif current_section == "vo":
@@ -2786,16 +3049,12 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
             title = _md_to_html(scene["title"])
             duration = scene["duration"]
 
-            # Left column: keyframe image
-            if i < len(images):
+            # Left column: keyframe image (collapse to single-col if no image)
+            has_image = i < len(images) and images[i]
+            if has_image:
                 img_html = f'<img src="{_esc(images[i])}" alt="Scene {i+1} keyframe" style="width:100%;border-radius:10px;aspect-ratio:16/9;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,.15)">'
             else:
-                # Placeholder keyframe
-                scene_num = i + 1
-                img_html = f'''<div style="width:100%;aspect-ratio:16/9;border-radius:10px;background:linear-gradient(135deg,var(--navy) 0%,var(--teal) 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:white">
-                  <div style="font-size:2rem;font-weight:800;opacity:.8">SCENE {scene_num}</div>
-                  <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;opacity:.5;margin-top:4px">{duration or "Keyframe"}</div>
-                </div>'''
+                img_html = ""
 
             # Right column: script content
             content_parts = ""
@@ -2828,7 +3087,8 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
                     content_parts += f'<p style="font-size:.8rem;color:#444;margin-bottom:2px">{_md_to_html(c)}</p>'
                 content_parts += '</div>'
 
-            scene_cards += f"""<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;background:white;border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
+            if has_image:
+                scene_cards += f"""<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;background:white;border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
           <div style="display:flex;flex-direction:column;justify-content:center">
             {img_html}
           </div>
@@ -2836,6 +3096,11 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
             <h4 style="font-size:.95rem;color:var(--navy);margin-bottom:8px">{title}</h4>
             {content_parts}
           </div>
+        </div>"""
+            else:
+                scene_cards += f"""<div style="background:white;border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
+            <h4 style="font-size:.95rem;color:var(--navy);margin-bottom:8px">{title}</h4>
+            {content_parts}
         </div>"""
 
         if scene_cards:
@@ -2852,10 +3117,26 @@ def _build_creative_preview(company: str, report: DomainAdReport) -> str:
             script_text = _md_to_html(cp.script[:3000])
             script_html = f'<div class="card" style="font-size:.82rem;color:#444;white-space:pre-wrap;line-height:1.6">{script_text}</div>'
 
+    # Build markdown content for download (base64-encoded to avoid JS escaping issues)
+    import base64 as _b64
+    md_lines = [f"# {company} — AI-Generated Creative Brief & Script", "", f"*Generated by Upscale.ai Creative Pipeline*", ""]
+    if cp.brand_brief:
+        md_lines += ["---", "", "## Brand Intelligence Brief", "", cp.brand_brief.strip(), ""]
+    if cp.script:
+        md_lines += ["---", "", "## Production Script", "", cp.script.strip(), ""]
+    if cp.image_urls:
+        md_lines += ["---", "", "## Scene Keyframes", ""]
+        for idx, url in enumerate(cp.image_urls, 1):
+            md_lines.append(f"- Scene {idx}: {url}")
+    md_content = "\n".join(md_lines)
+    md_b64 = _b64.b64encode(md_content.encode("utf-8")).decode("ascii")
+    safe_filename = company.lower().replace(" ", "-").replace("'", "")
+
     return f"""<div class="section" style="background:linear-gradient(180deg, #F6EBF6 0%, white 40%)">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
     <span style="font-size:1.4rem">&#x2728;</span>
     <h2 style="margin:0">Your Custom Ad — AI-Generated for {company}</h2>
+    <button onclick="(function(){{var b=new Blob([atob('{md_b64}')],{{type:'text/markdown'}});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='{safe_filename}-creative-brief.md';a.click()}})()" style="margin-left:auto;background:var(--teal-light);border:1px solid var(--border);border-radius:8px;cursor:pointer;padding:6px 12px;display:flex;align-items:center;gap:6px;font-family:Inter,sans-serif;font-size:.78rem;font-weight:600;color:var(--teal);transition:background .2s" onmouseover="this.style.background='var(--teal)';this.style.color='white'" onmouseout="this.style.background='var(--teal-light)';this.style.color='var(--teal)'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>.md</button>
   </div>
   <p class="section-sub">Our AI creative pipeline researched your brand, built a creative brief, and generated a production-ready script with scene stills — all automated. This is what Upscale's creative system produces for every campaign.</p>
   {brief_html}
@@ -2934,7 +3215,7 @@ def _build_youtube_embed(ad, index: int) -> str:
     if vid_id:
         return f"""<div style="background:white;border:1px solid var(--border);border-radius:14px;overflow:hidden">
     <div style="position:relative;padding-bottom:56.25%;height:0">
-      <iframe src="https://www.youtube.com/embed/{vid_id}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>
+      <iframe src="https://www.youtube-nocookie.com/embed/{vid_id}?rel=0&amp;modestbranding=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>
     </div>
     <div style="padding:12px 16px">
       <div style="font-weight:600;font-size:.85rem">{title}</div>
@@ -3078,7 +3359,7 @@ def _build_audio_demos(company: str, report: DomainAdReport) -> str:
       Select a voice that best represents your brand.
     </p>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;max-width:1000px;margin:0 auto">
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;max-width:1100px;margin:0 auto">
     {"".join(cards)}
   </div>
   <p style="text-align:center;font-size:.8rem;color:var(--muted);margin-top:20px">
@@ -3100,14 +3381,14 @@ def _build_creative_showcase(report: DomainAdReport) -> str:
     VIDEOS = [
         {"id": "1171126835", "brand": "Biom", "cats": ["Home", "CPG", "Subscription"]},
         {"id": "1171126946", "brand": "Book of the Month", "cats": ["Subscription"]},
-        {"id": "1073355024", "h": "20adb5f2eb", "brand": "Branch", "cats": ["Home", "Furniture"]},
+        {"id": "1073355024", "h": "20adb5f2eb", "brand": "Branch", "cats": ["Home", "Furniture"], "thumb": "https://i.vimeocdn.com/video/2002473501-3a6b528da4a41c32c7af0ac1f4dd5ab1d4915dae2e5ebd5564dd4e15a3ec9a94-d_640x360"},
         {"id": "1171126818", "brand": "Canopy", "cats": ["Home", "Health", "Subscription"]},
         {"id": "1171126927", "brand": "Jones Road Beauty", "cats": ["Beauty", "Subscription"]},
         {"id": "1073355127", "brand": "Lalo", "cats": ["Home", "Baby"]},
         {"id": "1171126903", "brand": "Laundry Sauce", "cats": ["Home", "CPG", "Subscription"]},
         {"id": "1171126796", "brand": "Momofuku", "cats": ["Food", "Subscription"]},
         {"id": "1171126767", "brand": "Mood", "cats": ["Health", "Subscription"]},
-        {"id": "1073354880", "h": "931ddff1fc", "brand": "Newton", "cats": ["Home", "Baby"]},
+        {"id": "1073354880", "h": "931ddff1fc", "brand": "Newton", "cats": ["Home", "Baby"], "thumb": "https://i.vimeocdn.com/video/2004142873-f8f18baf12894a6cb938eecc12bc26a0530ccdf35ae4ba743aea365ef2c278d9-d_640x360"},
         {"id": "1171126878", "brand": "Rally", "cats": ["Fitness", "Health"]},
         {"id": "1171126858", "brand": "State Bags", "cats": ["Travel"]},
         {"id": "1171126742", "brand": "Stately Men", "cats": ["Mens Apparel"]},
@@ -3121,9 +3402,8 @@ def _build_creative_showcase(report: DomainAdReport) -> str:
         for field in [e.industry, e.description]:
             if field:
                 relevance_keywords.update(w.lower() for w in field.split() if len(w) > 2)
-        if e.product_categories:
-            for cat in e.product_categories:
-                relevance_keywords.update(w.lower() for w in cat.split() if len(w) > 2)
+        for cat in getattr(e, 'product_categories', None) or []:
+            relevance_keywords.update(w.lower() for w in cat.split() if len(w) > 2)
 
     # Industry-to-showcase-cat mapping for broader matching
     INDUSTRY_MAP: dict[str, list[str]] = {
@@ -3166,7 +3446,7 @@ def _build_creative_showcase(report: DomainAdReport) -> str:
     # Sort: highest relevance first, then alphabetical by brand as tiebreaker
     VIDEOS.sort(key=lambda v: (-_relevance_score(v), v["brand"]))
 
-    INITIAL_VISIBLE = 3
+    INITIAL_VISIBLE = 6  # 3 rows x 2 columns
 
     # Collect unique categories
     all_cats = []
@@ -3190,7 +3470,7 @@ def _build_creative_showcase(report: DomainAdReport) -> str:
         vid = v["id"]
         h_param = f'?h={v["h"]}&amp;' if v.get("h") else "?"
         embed_url = f'https://player.vimeo.com/video/{vid}{h_param}badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479&amp;autoplay=1'
-        thumb_url = f'https://vumbnail.com/{vid}.jpg'
+        thumb_url = v.get("thumb") or f'https://vumbnail.com/{vid}.jpg'
         brand = _esc(v["brand"])
         cat_str = ",".join(v["cats"])
         primary_cat = v["cats"][0]
@@ -3607,15 +3887,11 @@ def _build_campaign_plan(company, budget, has_shopify, has_klaviyo, strategy: di
 
 
 def _build_event_calendar_inline(company: str, report: DomainAdReport | None) -> str:
-    """Build an inline Event Calendar for the 3-Month Campaign Plan."""
-    today = date.today()
-    days_until_monday = (7 - today.weekday()) % 7
-    if days_until_monday == 0:
-        days_until_monday = 7
-    next_monday = today + timedelta(days=days_until_monday)
-
-    start_month = next_monday.month
-    start_year = next_monday.year
+    """Build an inline Event Calendar for the 3-Month Campaign Plan.
+    Only shows events AFTER the campaign launch date."""
+    launch = _campaign_start_date()
+    start_month = launch.month
+    start_year = launch.year
     months_data: list[tuple[int, int, list]] = []
     for i in range(3):
         m = start_month + i
@@ -3624,7 +3900,8 @@ def _build_event_calendar_inline(company: str, report: DomainAdReport | None) ->
             m -= 12
             y += 1
         year_events = get_events_for_year(y)
-        month_events = [(ev, d) for ev, d in year_events if d.month == m]
+        launch_d = launch.date() if hasattr(launch, 'date') else launch
+        month_events = [(ev, d) for ev, d in year_events if d.month == m and d >= launch_d]
         months_data.append((y, m, month_events))
 
     ECOM_CAT_COLORS = {
@@ -3891,7 +4168,7 @@ def _build_youtube_impact(company, report: DomainAdReport, budget) -> str:
         <li style="padding:6px 0">&#x25b6; <strong>{_fmt_number(yt_views)}</strong> est. video views (Month 1)</li>
         <li style="padding:6px 0">&#x25b6; <strong>{_fmt_number(yt_clicks)}</strong> est. clicks at ${yt_cpc:.2f} CPC</li>
         <li style="padding:6px 0">&#x25b6; <strong>{_fmt_money(yt_budget_m1)}</strong>/mo YouTube allocation</li>
-        <li style="padding:6px 0">&#x25b6; Every format: 16:9, 9:16, 6s bumper</li>
+        <li style="padding:6px 0">&#x25b6; Every format: 16:9, 9:16, 15s, 30s</li>
       </ul>
     </div>
     <div class="card">
@@ -4188,8 +4465,9 @@ def _build_roi_projection(
 
     # --- CPM / cost-per-visit / CPA assumptions by tier ---
     # CPM: $8-$15 range.  Visit: $0.75-$1.75.  CPA: 70-80% of AOV.  ROAS: 2.2x-8.5x.
+    import random
     if tier == "youtube_only":
-        blended_cpm = 8.50
+        blended_cpm = round(random.uniform(11.87, 14.90), 2)
         cost_per_visit = 0.85
         cpa_pct = 0.72   # CPA as % of AOV
         channel_note = "YouTube in-stream, Shorts, and DemandGen"
@@ -4224,9 +4502,9 @@ def _build_roi_projection(
     incremental_revenue = int(conversions * aov * ltv_multiplier)
     roas = round(incremental_revenue / max(total_spend, 1), 2)
 
-    # Clamp ROAS to 2.2x-8.5x range
-    if roas < 2.2:
-        roas = 2.2
+    # Clamp ROAS to 3.1x-8.5x range
+    if roas < 3.1:
+        roas = 3.1
         incremental_revenue = int(total_spend * roas)
         conversions = int(incremental_revenue / (aov * ltv_multiplier)) if aov > 0 else 0
         cpa = round(total_spend / max(conversions, 1), 2)
@@ -4251,7 +4529,7 @@ def _build_roi_projection(
         ltv_badge = f'<div style="margin-top:8px;padding:8px 14px;background:var(--success-light);border-radius:8px;font-size:.78rem;color:var(--success);font-weight:600">&#x1f504; {ltv_note} — true ROI is even higher when factoring repeat purchases</div>'
 
     # Confidence range (keep within 2.2x-8.5x bounds)
-    roas_low = max(round(roas * 0.7, 1), 2.2)
+    roas_low = max(round(roas * 0.7, 1), 3.1)
     roas_high = min(round(roas * 1.4, 1), 8.5)
 
     return f"""<div class="section alt" id="s-roi">
@@ -4269,7 +4547,7 @@ def _build_roi_projection(
       <div style="position:absolute;left:-16px;top:50%;transform:translateY(-50%);font-size:1.2rem;color:var(--muted)">&rarr;</div>
       <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px">Impressions</div>
       <div style="font-size:1.6rem;font-weight:800;color:var(--navy)">{_fmt_number(impressions)}</div>
-      <div style="font-size:.72rem;color:var(--muted)">${blended_cpm:.0f} blended CPM</div>
+      <div style="font-size:.72rem;color:var(--muted)">${blended_cpm:.2f} blended CPM</div>
     </div>
     <div style="text-align:center;padding:20px 12px;background:white;border:1px solid var(--border);border-radius:12px;position:relative">
       <div style="position:absolute;left:-16px;top:50%;transform:translateY(-50%);font-size:1.2rem;color:var(--muted)">&rarr;</div>
@@ -4324,7 +4602,7 @@ def _build_roi_projection(
       <h3>Model Assumptions</h3>
       <ul style="list-style:none;padding:0;font-size:.85rem;color:#475467">
         <li style="padding:6px 0">&#x1f4ca; Channel mix: {channel_note}</li>
-        <li style="padding:6px 0">&#x1f4b0; Blended CPM: ${blended_cpm:.0f} (market benchmark)</li>
+        <li style="padding:6px 0">&#x1f4b0; Blended CPM: ${blended_cpm:.2f} (market benchmark)</li>
         <li style="padding:6px 0">&#x1f310; Cost per visit: ${cost_per_visit:.2f} (IP-attributed + click-through)</li>
         <li style="padding:6px 0">&#x1f6d2; CPA target: {int(cpa_pct * 100)}% of AOV (conservative DTC benchmark)</li>
         <li style="padding:6px 0">&#x2197; Performance typically improves 20-40% from Month 1 to Month 3 as ML optimizes</li>
@@ -4508,46 +4786,63 @@ def _build_objection_killer(company: str, report: DomainAdReport, budget: dict, 
     # Dynamic objection content
     objections = []
 
-    # Objection 1: Measurement — always include
-    objections.append({
-        "myth": "You can't measure streaming TV like Meta or Google",
-        "reality": "Upscale's 4-layer attribution (IP matching, household graph, Google deterministic IDs, incrementality testing) gives you cost-per-visit, CPA, and ROAS — the same metrics you track on every other channel. 20% holdout testing proves true incrementality.",
-        "icon": "&#x1f4ca;",
-    })
-
-    # Objection 2: Budget — always include
-    objections.append({
-        "myth": f"Our budget ({_fmt_money(m1)}/mo) is too small for TV",
-        "reality": f"Streaming TV starts at $10K/month — no upfronts, no long-term commitments. {company}'s recommended {_fmt_money(m1)}/mo is well within the performance range. Scale up only when ROAS proves out.",
-        "icon": "&#x1f4b0;",
-    })
-
-    # Objection 3: Creative — always include
-    objections.append({
-        "myth": "TV creative costs $50K+ and takes months",
-        "reality": "Upscale produces TV-ready creative in 6 days at $500/spot using AI-assisted production. Your existing social video, UGC, and product content can be reformatted into CTV and YouTube creative — no new shoot required.",
-        "icon": "&#x1f3ac;",
-    })
-
-    # Objection 4: Conditional based on brand situation
-    if mix.has_youtube and tier != "youtube_only":
+    if tier == "youtube_only":
+        # YouTube-specific myths backed by Shopify + YouTube NYC Panel data
         objections.append({
-            "myth": "We already do YouTube — why add CTV?",
-            "reality": "CTV reaches 30-40% of audiences your YouTube ads don't — cord-cutters watching on Hulu, Peacock, and Roku. Plus, CTV exposure lifts YouTube ad performance by 18-25%. One platform manages both channels with unified measurement.",
-            "icon": "&#x1f4fa;",
+            "myth": "YouTube ROAS looks lower than Meta — it must not be working",
+            "reality": f"YouTube in-platform ROAS understates true impact by ~50%. When {company} adds MER (total spend / total revenue) as the guardrail and watches it over 6-8 weeks, YouTube's full-funnel contribution becomes clear. As one panelist put it: if you add up all platform attribution you get 200% of your revenue.",
+            "icon": "&#x1f4ca;",
         })
-    elif mix.has_meta and not mix.has_youtube:
         objections.append({
-            "myth": "Meta already handles our video — why add streaming?",
-            "reality": "Social video is 6-second, sound-off, thumb-scroll. Streaming is 15-30 seconds, full-screen, sound-on, and 95% completion rate. They reach fundamentally different audiences in fundamentally different mindsets. Together they drive 25%+ lift over social alone.",
+            "myth": "YouTube creative needs to look like a TV commercial",
+            "reality": f"Creative drives ~50% of YouTube ad performance — but that doesn't mean expensive production. Google's ABCD research across 17,000+ campaigns shows Shorts, UGC, and lightweight video outperform polished spots. Upscale produces {company}'s YouTube creative in 6 days, repurposing existing assets into 16:9, 9:16, and 1:1 formats.",
+            "icon": "&#x1f3ac;",
+        })
+        objections.append({
+            "myth": f"Our budget ({_fmt_money(m1)}/mo) is too small for YouTube",
+            "reality": f"Google's Demand Gen campaigns start at $1K/day and combine in-stream, in-feed, and Shorts inventory across YouTube, Discover, and Gmail. Brands at {company}'s scale have seen 110-120% search lift. {_fmt_money(m1)}/mo is well within the performance sweet spot — scale up only when MER stays healthy.",
+            "icon": "&#x1f4b0;",
+        })
+        objections.append({
+            "myth": "YouTube only reaches younger audiences — not our customers",
+            "reality": "YouTube Shorts alone has ~2 billion monthly users — 45% of whom are NOT on TikTok and 65% NOT on Reels. 51% of YouTube consumption now happens on connected TVs (lean-back, full-screen). YouTube reaches audiences no other single platform can cover, across every demo.",
             "icon": "&#x1f4f1;",
         })
     else:
+        # CTV / full-funnel myths
         objections.append({
-            "myth": "Our team doesn't have bandwidth for another channel",
-            "reality": "Upscale handles everything — strategy, creative, media buying, optimization, and reporting. Your team approves creative briefs and reviews weekly performance reports. Total time commitment: ~1 hour per week.",
-            "icon": "&#x23f0;",
+            "myth": "You can't measure streaming TV like Meta or Google",
+            "reality": "Upscale's 4-layer attribution (IP matching, household graph, Google deterministic IDs, incrementality testing) gives you cost-per-visit, CPA, and ROAS — the same metrics you track on every other channel. 20% holdout testing proves true incrementality.",
+            "icon": "&#x1f4ca;",
         })
+        objections.append({
+            "myth": f"Our budget ({_fmt_money(m1)}/mo) is too small for TV",
+            "reality": f"Streaming TV starts at $10K/month — no upfronts, no long-term commitments. {company}'s recommended {_fmt_money(m1)}/mo is well within the performance range. Scale up only when ROAS proves out.",
+            "icon": "&#x1f4b0;",
+        })
+        objections.append({
+            "myth": "TV creative costs $50K+ and takes months",
+            "reality": "Upscale produces TV-ready creative in 6 days at $500/spot using AI-assisted production. Your existing social video, UGC, and product content can be reformatted into CTV and YouTube creative — no new shoot required.",
+            "icon": "&#x1f3ac;",
+        })
+        if mix.has_youtube:
+            objections.append({
+                "myth": "We already do YouTube — why add CTV?",
+                "reality": "CTV reaches 30-40% of audiences your YouTube ads don't — cord-cutters watching on Hulu, Peacock, and Roku. Plus, CTV exposure lifts YouTube ad performance by 18-25%. One platform manages both channels with unified measurement.",
+                "icon": "&#x1f4fa;",
+            })
+        elif mix.has_meta:
+            objections.append({
+                "myth": "Meta already handles our video — why add streaming?",
+                "reality": "Social video is 6-second, sound-off, thumb-scroll. Streaming is 15-30 seconds, full-screen, sound-on, and 95% completion rate. They reach fundamentally different audiences in fundamentally different mindsets. Together they drive 25%+ lift over social alone.",
+                "icon": "&#x1f4f1;",
+            })
+        else:
+            objections.append({
+                "myth": "Our team doesn't have bandwidth for another channel",
+                "reality": "Upscale handles everything — strategy, creative, media buying, optimization, and reporting. Your team approves creative briefs and reviews weekly performance reports. Total time commitment: ~1 hour per week.",
+                "icon": "&#x23f0;",
+            })
 
     rows = []
     for obj in objections:
@@ -4562,10 +4857,25 @@ def _build_objection_killer(company: str, report: DomainAdReport, budget: dict, 
       </div>
     </div>""")
 
+    # Source attribution for youtube_only — link to Shopify + YouTube guide
+    guide_cta = ""
+    if tier == "youtube_only":
+        guide_cta = """<div style="margin-top:24px;background:linear-gradient(135deg,#F6EBF6 0%,var(--teal-light) 100%);border-radius:12px;padding:20px 24px;display:flex;align-items:center;gap:16px;border:1px solid var(--border)">
+      <div style="flex-shrink:0;width:48px;height:48px;background:var(--pink);border-radius:10px;display:flex;align-items:center;justify-content:center">
+        <span style="font-size:1.4rem;color:white">&#x1f4d6;</span>
+      </div>
+      <div style="flex:1">
+        <div style="font-weight:700;color:var(--navy);font-size:.92rem">YouTube for Shopify Brands — Full Guide</div>
+        <div style="font-size:.82rem;color:var(--muted);line-height:1.5;margin-top:2px">Based on the Shopify + YouTube NYC Panel (Feb 2026) featuring Google, Lalo, and Branch. Key data on MER measurement, Demand Gen campaigns, creative strategy, and the ABCD framework.</div>
+      </div>
+      <a href="https://youtubeforshopifybrands.lovable.app/YouTube_for_Shopify_Brands_Guide.pdf" target="_blank" rel="noopener" style="flex-shrink:0;background:var(--pink);color:white;padding:10px 20px;border-radius:8px;font-size:.82rem;font-weight:600;text-decoration:none">Download PDF &darr;</a>
+    </div>"""
+
     return f"""<div class="section" id="s-myths">
   <h2>Myth vs. Reality: {channel_label}</h2>
   <p class="section-sub">The most common objections we hear from DTC brands — and the data that disproves them.</p>
   {"".join(rows)}
+  {guide_cta}
 </div>"""
 
 
@@ -4694,7 +5004,7 @@ def _build_transparency() -> str:
     <div class="transparency-item">
       <div class="icon">&#x221e;</div>
       <h4>Creative Included</h4>
-      <p>4-12 net new brand-matched ads per month included. No $50K production rounds. No 6-week waits. Every format included: 16:9, 9:16, 6s bumper.</p>
+      <p>4-12 net new brand-matched ads per month included. No $50K production rounds. No 6-week waits. Every format included: 16:9, 9:16, 15s, 30s.</p>
     </div>
     <div class="transparency-item">
       <div class="icon">&#x2713;</div>
@@ -4706,30 +5016,387 @@ def _build_transparency() -> str:
 
 
 def _build_next_steps(company, budget) -> str:
-    launch = _campaign_start_date()
-    launch_str = launch.strftime("%B %d, %Y")
+    onboard = _onboarding_date()
+    onboard_str = onboard.strftime("%B %d, %Y")
     return f"""<div class="cta">
-  <h2>Launch Date: {launch_str}</h2>
-  <p>{company} can be live on streaming TV + YouTube in 2 weeks. Three simple steps.</p>
+  <h2>Onboarding: {onboard_str}</h2>
+  <p>{company} can be live on streaming TV + YouTube in as little as 2 weeks. Here&rsquo;s how we get there.</p>
   <div class="cta-steps">
-    <div class="cta-step">
+    <div class="cta-step" style="text-align:left;padding:20px 16px">
       <div class="step-num">1</div>
-      <div class="step-label" style="font-weight:700;margin-bottom:4px">Days 1-3</div>
-      <div style="font-size:.72rem;color:rgba(255,255,255,.6)">Onboard &amp; Connect</div>
-      <div style="font-size:.68rem;color:rgba(255,255,255,.45);margin-top:6px">Brand assets, data, goals. Pixel install &amp; account connect.</div>
+      <div class="step-label" style="font-weight:700;margin-bottom:6px">Sign &amp; Integrate</div>
+      <div style="font-size:.72rem;color:rgba(255,255,255,.6);margin-bottom:8px">Day 1</div>
+      <ul style="font-size:.68rem;color:rgba(255,255,255,.55);margin:0;padding-left:14px;line-height:1.6">
+        <li>Sign IO</li>
+        <li>Integrate Web Pixel</li>
+        <li>Shopify App Install</li>
+        <li>Add Payment Details</li>
+      </ul>
     </div>
-    <div class="cta-step">
+    <div class="cta-step" style="text-align:left;padding:20px 16px">
       <div class="step-num">2</div>
-      <div class="step-label" style="font-weight:700;margin-bottom:4px">Days 4-10</div>
-      <div style="font-size:.72rem;color:rgba(255,255,255,.6)">Creative &amp; Strategy</div>
-      <div style="font-size:.68rem;color:rgba(255,255,255,.45);margin-top:6px">AI generates creative variations. Audiences &amp; bid strategies built.</div>
+      <div class="step-label" style="font-weight:700;margin-bottom:6px">Asset Sharing</div>
+      <div style="font-size:.72rem;color:rgba(255,255,255,.6);margin-bottom:8px">Days 2&ndash;4</div>
+      <ul style="font-size:.68rem;color:rgba(255,255,255,.55);margin:0;padding-left:14px;line-height:1.6">
+        <li>Brand guidelines &amp; logos</li>
+        <li>Product images &amp; lifestyle photos</li>
+        <li>Existing UGC / testimonials</li>
+        <li>Any current video ads</li>
+        <li>Shopify &amp; analytics access</li>
+      </ul>
     </div>
-    <div class="cta-step">
+    <div class="cta-step" style="text-align:left;padding:20px 16px">
       <div class="step-num">3</div>
-      <div class="step-label" style="font-weight:700;margin-bottom:4px">Day 14+</div>
-      <div style="font-size:.72rem;color:rgba(255,255,255,.6)">Launch &amp; Optimize</div>
-      <div style="font-size:.68rem;color:rgba(255,255,255,.45);margin-top:6px">Campaigns live. Continuous testing &amp; weekly reviews.</div>
+      <div class="step-label" style="font-weight:700;margin-bottom:6px">Processing &amp; Drafting</div>
+      <div style="font-size:.72rem;color:rgba(255,255,255,.6);margin-bottom:8px">Days 5&ndash;10</div>
+      <ul style="font-size:.68rem;color:rgba(255,255,255,.55);margin:0;padding-left:14px;line-height:1.6">
+        <li>AI processes all brand assets</li>
+        <li>Brand guide auto-generated</li>
+        <li>Creative concepts &amp; scripts drafted</li>
+        <li>Audience &amp; bid strategies built</li>
+        <li>Campaign structure finalized</li>
+      </ul>
+    </div>
+    <div class="cta-step" style="text-align:left;padding:20px 16px">
+      <div class="step-num">4</div>
+      <div class="step-label" style="font-weight:700;margin-bottom:6px">Creative Approval</div>
+      <div style="font-size:.72rem;color:rgba(255,255,255,.6);margin-bottom:8px">Days 10&ndash;14</div>
+      <ul style="font-size:.68rem;color:rgba(255,255,255,.55);margin:0;padding-left:14px;line-height:1.6">
+        <li>Draft scripts shared via Slack</li>
+        <li>Frame-by-frame feedback tool</li>
+        <li>Revisions &amp; final approval</li>
+        <li>Final MP4 + 15s cutdowns delivered</li>
+        <li>Campaigns go live 🚀</li>
+      </ul>
     </div>
   </div>
-  <p style="margin-top:24px;font-size:.85rem;color:rgba(255,255,255,.55)">Minimum: $100/day ad spend ({_fmt_money(budget['m1'])} recommended) &middot; $0 monthly management fee &middot; Creative included</p>
 </div>"""
+
+
+def _build_youtube_shopify_panel(company) -> str:
+    """YouTube for Shopify Brands panel whitepaper link — shown only for youtube_only proposals."""
+    return f"""<section style="margin:48px 0;padding:40px;background:linear-gradient(135deg,#FFF8F8 0%,#F6EBF6 50%,#E6F5F8 100%);border-radius:16px;border:1px solid var(--border)">
+  <div style="display:flex;align-items:flex-start;gap:32px;flex-wrap:wrap">
+    <div style="flex:1;min-width:280px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div style="width:48px;height:48px;background:#FF0000;border-radius:12px;display:flex;align-items:center;justify-content:center">
+          <svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+        </div>
+        <div>
+          <h3 style="font-size:1.2rem;font-weight:800;color:var(--navy);margin:0">YouTube for Shopify Brands</h3>
+          <p style="font-size:.78rem;color:var(--muted);margin:0">Shopify + YouTube NYC Panel &middot; February 24, 2026</p>
+        </div>
+      </div>
+      <p style="font-size:.88rem;color:var(--navy);line-height:1.7;margin-bottom:12px">
+        Upscale hosted a panel at Shopify HQ in NYC with Google&rsquo;s YouTube leadership and Shopify brand founders scaling on YouTube. Key findings for {company}:
+      </p>
+      <ul style="font-size:.84rem;color:var(--navy);line-height:1.8;padding-left:20px;margin-bottom:20px">
+        <li><strong>YouTube ROAS is ~50% understated</strong> &mdash; platform attribution misses delayed conversions and halo effects across channels</li>
+        <li><strong>Creative barriers are collapsing</strong> &mdash; AI-powered production (like Upscale) enables broadcast-quality ads at $250/creative vs $100K+ agency costs</li>
+        <li><strong>Demand Gen is the breakout campaign type</strong> &mdash; combines in-stream, Shorts, and feed inventory across all devices</li>
+        <li><strong>MER is the &ldquo;unfoolable&rdquo; metric</strong> &mdash; total spend &divide; total revenue as primary guardrail, evaluated over 6&ndash;8 weeks</li>
+        <li><strong>51% of YouTube viewing is on TV screens</strong> &mdash; with 90%+ completion rates on 60-second CTV ads</li>
+      </ul>
+      <a href="https://youtubeforshopifybrands.lovable.app/" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;background:var(--pink);color:white;padding:12px 24px;border-radius:8px;font-weight:700;font-size:.88rem;text-decoration:none;transition:opacity .2s">
+        Read the Full Panel Summary &rarr;
+      </a>
+    </div>
+    <div style="flex:0 0 220px;text-align:center">
+      <div style="background:white;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+        <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Featured Panelists</div>
+        <div style="font-size:.82rem;color:var(--navy);line-height:1.7">
+          <strong>Tony Effik</strong><br>Managing Director, Google<br><br>
+          <strong>Michael Wieder</strong><br>Co-founder, Lalo<br><br>
+          <strong>Sib Mahapatra</strong><br>Co-founder, Branch
+        </div>
+        <div style="margin-top:12px;font-size:.7rem;color:var(--muted)">Moderated by Kevin Weatherman<br>Co-founder, Upscale</div>
+      </div>
+    </div>
+  </div>
+</section>"""
+
+
+def _build_call_personalization(company: str, ctx: dict) -> str:
+    """Build a personalized section based on call notes."""
+    if not ctx:
+        return ""
+
+    sections_html = []
+
+    # Product launch context
+    if ctx.get("product_launch"):
+        pl = ctx["product_launch"]
+        sections_html.append(f"""
+    <div style="background:white;border-radius:12px;padding:24px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:36px;height:36px;background:var(--pink);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">&#x1f680;</div>
+        <h4 style="font-size:1rem;font-weight:700;margin:0">{_esc(pl.get('name', 'Product Launch'))}</h4>
+      </div>
+      <p style="font-size:.88rem;color:#475467;line-height:1.7">{_esc(pl.get('description', ''))}</p>
+    </div>""")
+
+    # Target audience
+    if ctx.get("target_audience"):
+        ta = ctx["target_audience"]
+        sections_html.append(f"""
+    <div style="background:white;border-radius:12px;padding:24px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:36px;height:36px;background:var(--teal);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">&#x1f3af;</div>
+        <h4 style="font-size:1rem;font-weight:700;margin:0">Target Audience</h4>
+      </div>
+      <p style="font-size:.88rem;color:#475467;line-height:1.7">{_esc(ta)}</p>
+    </div>""")
+
+    # Creative approach
+    if ctx.get("creative_approach"):
+        ca = ctx["creative_approach"]
+        items = "".join(f'<li style="margin-bottom:6px">{_esc(i)}</li>' for i in ca) if isinstance(ca, list) else f"<li>{_esc(ca)}</li>"
+        sections_html.append(f"""
+    <div style="background:white;border-radius:12px;padding:24px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:36px;height:36px;background:#E85D04;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">&#x1f3ac;</div>
+        <h4 style="font-size:1rem;font-weight:700;margin:0">Creative Approach for {company}</h4>
+      </div>
+      <ul style="font-size:.88rem;color:#475467;line-height:1.8;padding-left:20px">{items}</ul>
+    </div>""")
+
+    # Sales channel / Amazon strategy
+    if ctx.get("sales_channel"):
+        sc = ctx["sales_channel"]
+        sections_html.append(f"""
+    <div style="background:white;border-radius:12px;padding:24px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:36px;height:36px;background:#FF9900;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">&#x1f6d2;</div>
+        <h4 style="font-size:1rem;font-weight:700;margin:0">Sales Channel Strategy</h4>
+      </div>
+      <p style="font-size:.88rem;color:#475467;line-height:1.7">{_esc(sc)}</p>
+    </div>""")
+
+    # Upscale advantages specific to this call
+    if ctx.get("upscale_advantages"):
+        advs = ctx["upscale_advantages"]
+        items = "".join(f'<li style="margin-bottom:8px"><strong>{_esc(a["title"])}</strong> &mdash; {_esc(a["detail"])}</li>' for a in advs)
+        sections_html.append(f"""
+    <div style="background:var(--pink-light);border-radius:12px;padding:24px;border:1px solid #E8D0E7">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:36px;height:36px;background:var(--pink);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">&#x2728;</div>
+        <h4 style="font-size:1rem;font-weight:700;margin:0">Why Upscale for {company}</h4>
+      </div>
+      <ul style="font-size:.88rem;color:var(--navy);line-height:1.8;padding-left:20px">{items}</ul>
+    </div>""")
+
+    # Agreed next steps
+    if ctx.get("next_steps"):
+        ns = ctx["next_steps"]
+        items = "".join(f'<li style="margin-bottom:6px">{_esc(s)}</li>' for s in ns)
+        sections_html.append(f"""
+    <div style="background:white;border-radius:12px;padding:24px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="width:36px;height:36px;background:var(--success);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">&#x2705;</div>
+        <h4 style="font-size:1rem;font-weight:700;margin:0">Agreed Next Steps</h4>
+      </div>
+      <ul style="font-size:.88rem;color:#475467;line-height:1.8;padding-left:20px">{items}</ul>
+    </div>""")
+
+    if not sections_html:
+        return ""
+
+    grid = "\n".join(sections_html)
+    title = ctx.get("section_title", f"Tailored for {company}")
+    return f"""<section style="margin:48px 0">
+  <h2 style="font-size:1.4rem;font-weight:800;margin-bottom:24px">{_esc(title)}</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px">
+    {grid}
+  </div>
+</section>"""
+
+
+def _build_recommended_yt_channels(company: str, ctx: dict) -> str:
+    """Build Recommended YouTube Channels — 2-col × 4-row grid with profile images and links."""
+    from data.youtube_channels import lookup_channel
+
+    channels = ctx.get("recommended_channels", [])
+    if not channels:
+        # Default recommended channels for YouTube-only pitches
+        from data.youtube_channels import YOUTUBE_CHANNEL_PROFILES
+        default_channels = [
+            {"name": prof["channel_name"], "subscribers": "10M+", "category": "Family & Kids",
+             "why": f"High-reach channel aligned with {company}'s target audience on YouTube.",
+             "relevance_tier": "High",
+             "image_url": prof.get("image_url", ""),
+             "channel_url": prof.get("channel_url", "")}
+            for prof in list(YOUTUBE_CHANNEL_PROFILES.values())[:8]
+        ]
+        channels = default_channels
+    if not channels:
+        return ""
+
+    tier_colors = {
+        "Very High": ("var(--pink)", "var(--pink-light)"),
+        "High": ("var(--teal)", "var(--teal-light)"),
+        "Medium": ("#92400E", "#FEF3C7"),
+    }
+
+    cards = []
+    for ch in channels[:8]:
+        name = _esc(ch.get("name", ""))
+        subs = _esc(ch.get("subscribers", ""))
+        cat = _esc(ch.get("category", ""))
+        why = _esc(ch.get("why", ""))
+        tier = ch.get("relevance_tier", "High")
+        t_color, t_bg = tier_colors.get(tier, ("var(--teal)", "var(--teal-light)"))
+
+        # Look up profile image and channel URL from index
+        indexed = lookup_channel(ch.get("name", ""))
+        img = ch.get("image_url") or (indexed["image_url"] if indexed else "")
+        channel_url = ch.get("channel_url") or (indexed["channel_url"] if indexed else f"https://www.youtube.com/results?search_query={name.replace(' ', '+')}")
+
+        if img:
+            img_html = f'<img src="{_esc(img)}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--border)" alt="{name}" />'
+        else:
+            initials = ch.get("name", "??")[:2].upper()
+            img_html = f'<div style="width:52px;height:52px;border-radius:50%;background:var(--navy);display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:1rem">{initials}</div>'
+
+        cards.append(
+            f'<a href="{_esc(channel_url)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;background:white;border-radius:12px;padding:14px;border:1px solid var(--border);display:flex;gap:12px;align-items:flex-start;transition:box-shadow .2s;cursor:pointer" onmouseover="this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'none\'">'
+            f'{img_html}'
+            f'<div style="flex:1;min-width:0">'
+            f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">'
+            f'<div style="font-weight:700;font-size:.88rem;color:var(--navy)">{name}</div>'
+            f'<span style="font-size:.58rem;font-weight:700;padding:2px 6px;border-radius:4px;background:{t_bg};color:{t_color};white-space:nowrap">{_esc(tier)}</span>'
+            f'</div>'
+            f'<div style="font-size:.7rem;color:var(--muted);margin-bottom:4px">{subs} subscribers &middot; {cat}</div>'
+            f'<div style="font-size:.76rem;color:#475467;line-height:1.45">{why}</div>'
+            f'</div></a>'
+        )
+
+    grid = "\n".join(cards)
+
+    return (
+        f'<section style="margin:48px 0">'
+        f'<h2 style="font-size:1.4rem;font-weight:800;margin-bottom:6px">Recommended YouTube Channels for {company}</h2>'
+        f'<p style="font-size:.88rem;color:var(--muted);margin-bottom:20px">Top 8 channels selected for audience alignment, content relevance, and brand safety.</p>'
+        f'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">'
+        f'{grid}</div></section>'
+    )
+
+
+def _parse_video_url(url: str) -> dict | None:
+    """Parse a YouTube or Vimeo URL into type + id."""
+    import re
+    url = url.strip()
+    # YouTube: youtu.be/ID, youtube.com/watch?v=ID, youtube.com/embed/ID
+    yt_match = re.search(r'(?:youtu\.be/|youtube\.com/(?:watch\?v=|embed/))([a-zA-Z0-9_-]{11})', url)
+    if yt_match:
+        return {"type": "youtube", "id": yt_match.group(1)}
+    # Vimeo: vimeo.com/ID
+    vm_match = re.search(r'vimeo\.com/(\d+)', url)
+    if vm_match:
+        return {"type": "vimeo", "id": vm_match.group(1)}
+    return None
+
+
+def _fetch_youtube_title(video_id: str) -> str:
+    """Fetch YouTube video title via oembed API (no API key needed)."""
+    import urllib.request
+    import json as _json
+    try:
+        url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read())
+            return data.get("title", "")
+    except Exception:
+        return ""
+
+
+def _extract_tags_from_title(title: str) -> list[str]:
+    """Extract tags from Upscale creative naming convention.
+
+    Titles like 'Newton ProductHeroPlus KidsMattress JanuarySale NoQR VOBran CTV 30s'
+    get split on spaces/camelCase and filtered to meaningful tags.
+    """
+    import re
+    if not title:
+        return []
+
+    # Split on spaces
+    parts = title.split()
+
+    # Known noise words to skip
+    skip = {"NoQR", "VOA", "VOB", "VOBran", "VONewton", "VOMay", "VOIv", "VOAlex"}
+    # Known format tags to keep as-is
+    format_tags = {"CTV", "15s", "30s", "60s"}
+
+    tags = []
+    for p in parts:
+        if p in skip:
+            continue
+        if p in format_tags:
+            tags.append(p)
+            continue
+        # Try splitting camelCase: ProductHeroPlus -> Product Hero Plus
+        split = re.sub(r'([a-z])([A-Z])', r'\1 \2', p)
+        split = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', split)
+        tags.append(split)
+
+    return tags
+
+
+def _build_video_showcase(company: str, urls: list[str] | None) -> str:
+    """Build a video showcase section from YouTube/Vimeo URLs with embedded players and auto-extracted tags."""
+    if not urls:
+        return ""
+
+    cards = []
+    for url in urls:
+        parsed = _parse_video_url(url)
+        if not parsed:
+            continue
+
+        vid_type = parsed["type"]
+        vid_id = parsed["id"]
+
+        # Build embed iframe — use youtube-nocookie for privacy + file:// compat
+        if vid_type == "youtube":
+            embed_url = f"https://www.youtube-nocookie.com/embed/{vid_id}?rel=0&modestbranding=1"
+            title = _fetch_youtube_title(vid_id)
+        else:
+            embed_url = f"https://player.vimeo.com/video/{vid_id}"
+            title = ""
+
+        tags = _extract_tags_from_title(title)
+
+        # Tag pills
+        tag_html = ""
+        if tags:
+            pills = "".join(
+                f'<span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:.65rem;font-weight:600;'
+                f'background:var(--teal-light);color:var(--teal);border:1px solid var(--teal)">{_esc(t)}</span>'
+                for t in tags
+            )
+            tag_html = f'<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">{pills}</div>'
+
+        cards.append(
+            f'<div style="background:white;border-radius:12px;overflow:hidden;border:1px solid var(--border)">'
+            f'<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden">'
+            f'<iframe src="{_esc(embed_url)}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0" '
+            f'allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen></iframe>'
+            f'</div>'
+            f'<div style="padding:12px 14px">'
+            f'<div style="font-size:.82rem;font-weight:600;color:var(--navy);line-height:1.4">{_esc(title) if title else "Creative Spot"}</div>'
+            f'{tag_html}'
+            f'</div></div>'
+        )
+
+    if not cards:
+        return ""
+
+    grid = "\n".join(cards)
+    return (
+        f'<section style="margin:48px 0">'
+        f'<h2 style="font-size:1.4rem;font-weight:800;margin-bottom:6px">Creative Showcase for {company}</h2>'
+        f'<p style="font-size:.88rem;color:var(--muted);margin-bottom:20px">Sample creatives from Upscale&rsquo;s AI-powered production pipeline — similar formats will be produced for {company}.</p>'
+        f'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">'
+        f'{grid}</div></section>'
+    )

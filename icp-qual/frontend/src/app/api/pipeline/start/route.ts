@@ -31,9 +31,10 @@ export async function POST(request: NextRequest) {
     const data = await res.json();
     return NextResponse.json(data);
   } catch (err) {
-    // If the backend is not running, return a mock runId for dev
     console.error("Pipeline start error:", err);
-    const runId = `dev-${Date.now().toString(36)}`;
-    return NextResponse.json({ runId, status: "pending", mock: true });
+    return NextResponse.json(
+      { error: "Pipeline backend is not reachable. Please ensure the API server is running on port 8000." },
+      { status: 503 },
+    );
   }
 }
