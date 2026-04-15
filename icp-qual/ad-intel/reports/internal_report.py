@@ -78,7 +78,9 @@ def generate_internal_report(
 ) -> str:
     """Generate the internal ICP HTML report."""
     e = report.enrichment
-    company = _esc(report.company_name or report.domain)
+    # Prefer StoreLeads merchant_name for brand display
+    merchant = (e.merchant_name if e else None) or report.company_name
+    company = _esc(merchant or report.domain)
     domain = _esc(report.domain)
     industry = _esc(e.industry) if e else "—"
     description = _esc(e.description) if e and e.description else ""
@@ -1491,8 +1493,8 @@ def _build_company_profile_section(report: DomainAdReport) -> str:
         return '<section><h2>Company Profile</h2><p>No enrichment data available.</p></section>'
 
     # ── Hero Card ──
-    company_name = _esc(e.company_name or report.company_name or report.domain)
-    initial = (e.company_name or report.company_name or report.domain or "?")[0].upper()
+    company_name = _esc(e.merchant_name or e.company_name or report.company_name or report.domain)
+    initial = (e.merchant_name or e.company_name or report.company_name or report.domain or "?")[0].upper()
     industry = _esc(e.industry) if e.industry else ""
     hq = _esc(", ".join(filter(None, [
         getattr(e, 'city', None),
@@ -1842,7 +1844,8 @@ def _build_creative_pipeline_section(report: DomainAdReport) -> str:
     if not cp or not cp.found:
         return ""
 
-    company = _esc(report.company_name or report.domain)
+    e_cp = report.enrichment
+    company = _esc((e_cp.merchant_name if e_cp else None) or report.company_name or report.domain)
 
     # Status badge
     status_color = {"complete": "#027A48", "error": "#B42318", "timeout": "#B54708"}.get(cp.status, "#838383")
@@ -3552,7 +3555,7 @@ def _ctv_youtube_hypotheses(report: DomainAdReport, fit: UpscaleFitResult) -> st
     mix = report.channel_mix
     milled = report.milled_intel
 
-    company = _esc(report.company_name or report.domain)
+    company = _esc((e.merchant_name if e else None) or report.company_name or report.domain)
     industry = _esc(e.industry) if e and e.industry else "their category"
 
     # Why CTV now
@@ -3717,7 +3720,7 @@ def _call_talk_track(report: DomainAdReport, fit: UpscaleFitResult) -> str:
     e = report.enrichment
     bi = report.brand_intel
     mix = report.channel_mix
-    company = _esc(report.company_name or report.domain)
+    company = _esc((e.merchant_name if e else None) or report.company_name or report.domain)
 
     # 3 Opening insights
     insights: list[str] = []

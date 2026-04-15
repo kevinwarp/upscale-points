@@ -756,7 +756,9 @@ def generate_pitch_report(
     """Generate the external-facing pitch HTML."""
     cfg = config or PitchConfig()
     e = report.enrichment
-    company = _esc(cfg.company_name or report.company_name or report.domain)
+    # Prefer: config override → StoreLeads merchant_name → report company_name → domain
+    merchant = (e.merchant_name if e else None) or report.company_name
+    company = _esc(cfg.company_name or merchant or report.domain)
     domain = _esc(report.domain)
     industry = _esc(cfg.industry or (e.industry.split("/")[-1].strip() if e and e.industry else "E-Commerce"))
     description = _esc(e.description) if e and e.description else ""

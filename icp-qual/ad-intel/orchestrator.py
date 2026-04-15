@@ -159,7 +159,8 @@ async def run_pipeline(
     enrichment = await enrich_domain(domain)
     if enrichment:
         report.enrichment = enrichment
-        report.company_name = enrichment.company_name
+        # Prefer StoreLeads merchant_name for brand display
+        report.company_name = enrichment.merchant_name or enrichment.company_name
 
         # Detect CTV competitor tags in tech stack
         report.competitor_detection = _detect_ctv_competitors(enrichment.technologies)

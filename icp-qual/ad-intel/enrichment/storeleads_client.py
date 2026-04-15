@@ -42,14 +42,20 @@ async def enrich_domain(domain: str) -> CompanyEnrichment | None:
             # Store Leads nests domain data under a "domain" key
             data = raw.get("domain", raw)
 
-            # Extract company name: prefer merchant_name or title over
-            # the "name" field which is often just the domain
-            company_name = data.get("merchant_name") or data.get("title")
+            # Extract company name: prefer merchant_name from StoreLeads
+            # (this is the official brand/merchant name, not the page title)
+            raw_merchant = data.get("merchant_name") or ""
+            page_title = data.get("title") or ""
+            merchant_name = raw_merchant.strip() or None
+
+            # Use merchant_name as-is for brand display (light cleanup only)
+            company_name = raw_merchant.strip() or page_title.strip() or None
             if company_name:
-                # Clean up trailing taglines like "Nike. Just Do It"
-                company_name = company_name.split(".")[0].strip()
+                # Only strip pipe/dash suffixes (taglines), preserve dots in brand names
                 company_name = company_name.split("|")[0].strip()
                 company_name = company_name.split(" - ")[0].strip()
+                # Strip trailing period but preserve dots within names (e.g. "fatty15")
+                company_name = company_name.rstrip(".")
 
             # Parse location field "Beaverton, OR, USA" into parts
             location = data.get("location", "")
@@ -144,6 +150,7 @@ async def enrich_domain(domain: str) -> CompanyEnrichment | None:
             return CompanyEnrichment(
                 domain=domain,
                 company_name=company_name,
+                merchant_name=merchant_name,
                 website=f"https://{data.get('cluster_best_ranked', domain)}",
                 industry=industry,
                 description=data.get("description"),

@@ -40,6 +40,7 @@ class SocialProfile(BaseModel):
 class CompanyEnrichment(BaseModel):
     domain: str
     company_name: Optional[str] = None
+    merchant_name: Optional[str] = None  # Raw merchant name from StoreLeads
     website: Optional[str] = None
     industry: Optional[str] = None
     description: Optional[str] = None
