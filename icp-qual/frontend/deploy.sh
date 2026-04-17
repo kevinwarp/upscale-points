@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-PROJECT=$(gcloud config get-value project)
+PROJECT="octokev"
 REGION="us-central1"
 SERVICE="upscale-icp-frontend"
 REPOSITORY="cloud-run-images"
@@ -21,14 +21,27 @@ IMAGE="us-central1-docker.pkg.dev/${PROJECT}/${REPOSITORY}/${SERVICE}:latest"
 
 BACKEND_URL="${PIPELINE_BACKEND_URL:-http://localhost:8000}"
 PASSWORD="${SITE_PASSWORD:-scalewithupscale}"
+ACTIVE_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
+
+if [[ "${ACTIVE_PROJECT}" != "${PROJECT}" ]]; then
+  echo "Refusing to deploy."
+  echo "Active gcloud project: ${ACTIVE_PROJECT:-<unset>}"
+  echo "Expected gcloud project: ${PROJECT}"
+  echo "Run: gcloud config set project ${PROJECT}"
+  exit 1
+fi
+
+export CLOUDSDK_CORE_PROJECT="${PROJECT}"
 
 echo "→ Building and pushing image: ${IMAGE}"
 gcloud builds submit \
+  --project "${PROJECT}" \
   --tag "${IMAGE}" \
   .
 
 echo "→ Deploying Cloud Run service: ${SERVICE}"
 gcloud run deploy "${SERVICE}" \
+  --project "${PROJECT}" \
   --image "${IMAGE}" \
   --region "${REGION}" \
   --platform managed \
@@ -37,6 +50,7 @@ gcloud run deploy "${SERVICE}" \
   --set-env-vars "PIPELINE_BACKEND_URL=${BACKEND_URL},SITE_PASSWORD=${PASSWORD},NODE_ENV=production"
 
 SERVICE_URL=$(gcloud run services describe "${SERVICE}" \
+  --project "${PROJECT}" \
   --region "${REGION}" \
   --format "value(status.url)")
 
